@@ -1,0 +1,120 @@
+{
+  "store": {
+    "address": "Rua das Laranjeiras, 123 - Rio de Janeiro",
+    "force_status": null,
+    "hours": {
+      "open": "18:00",
+      "close": "20:00"
+    },
+    "is_open": false,
+    "logo": "/static/uploads/c516aeac800a443687ac74b75b2ab11a.png",
+    "name": "Rey Pizzaria"
+  },
+  "today_post": {
+    "title": "Hoje tem fornada nova!",
+    "text": "Chegou o forno quente e a massa descansada. Hoje o destaque e a pizza de calabresa acebolada, saindo direto pra sua mesa entre 18h e 20h.",
+    "image": "/static/uploads/9bc44462dbd04460bb439f658836dee0.jpg"
+  },
+  "items": [
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 1,
+      "image": "",
+      "name": "Pizza Marguerita",
+      "price": 32,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 2,
+      "image": "/static/uploads/bb01f51edbe14e1f9c9c8416d29f907e.jpg",
+      "name": "Pizza Calabresa",
+      "price": 35,
+      "promo_extra": 5
+    },
+    {
+      "category": "salgado",
+      "description": "",
+      "id": 4,
+      "image": "",
+      "name": "Coxinha",
+      "price": 7,
+      "promo_extra": 0
+    },
+    {
+      "category": "salgado",
+      "description": "",
+      "id": 5,
+      "image": "",
+      "name": "Pastel de Carne",
+      "price": 8,
+      "promo_extra": 0
+    },
+    {
+      "category": "salgado",
+      "description": "",
+      "id": 6,
+      "image": "",
+      "name": "Kibe",
+      "price": 7,
+      "promo_extra": 0
+    },
+    {
+      "category": "bebida",
+      "description": "",
+      "id": 7,
+      "image": "",
+      "name": "Guarana Antarctica",
+      "price": 6,
+      "promo_extra": 0
+    },
+    {
+      "category": "bebida",
+      "description": "",
+      "id": 8,
+      "image": "",
+      "name": "Coca-Cola",
+      "price": 6,
+      "promo_extra": 0
+    },
+    {
+      "category": "bebida",
+      "description": "",
+      "id": 9,
+      "image": "",
+      "name": "Suco de Laranja",
+      "price": 7,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 10,
+      "image": "/static/uploads/089dd5ab696948e19df5deb29b5310e7.jpg",
+      "name": "Novo produto",
+      "price": 0,
+      "promo_extra": 0
+    }
+  ],
+  "promotions": [
+    {
+      "description": "Escolha o sabor de cada pizza. Algumas pizzas podem ter adicional dentro da promoção.",
+      "id": 1,
+      "image": "/static/uploads/12f4d17f3bf147da8f90c44aa01c73bc.jpg",
+      "name": "Promoção de 2 pizzas",
+      "price": 50,
+      "slots": [
+        {
+          "label": "Pizza 1",
+          "category": "pizza"
+        },
+        {
+          "label": "Pizza 2",
+          "category": "pizza"
+        }
+      ]
+    }
+  ]
+}
