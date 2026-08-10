@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rei Pizzaria</title>
+<link rel="preconnect" href="../logo.jpg">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <a href="../logo.jpg" target="_blank">
+      <img class="brand-logo" id="brand-logo" src="" alt="Rey Pizzaria" style="display:none;">
+      <span id="brand-name">Rei Pizzaria</span>
+    </a>
+  </div>
+  <div id="sign" class="sign">
+    <span class="dot"></span>
+    <span id="sign-text">carregando…</span>
+  </div>
+</header>
+
+<main class="hero">
+  <img class="logo-big" id="logo-big" src="" alt="Rey Pizzaria" style="display:none;">
+  <p class="eyebrow" id="post-eyebrow">post de hoje</p>
+  <h1 id="post-title">—</h1>
+  <p class="lead" id="post-text"></p>
+  <div class="image-slot" id="post-image">
+    <span>espaço para foto do dia</span>
+  </div>
+
+  <div class="wrap" style="padding:0;">
+    <div id="promos-section">
+      <h2 class="section-title">Promoções</h2>
+      <div class="promo-grid" id="promos-grid"></div>
+    </div>
+
+    <div id="pizzas-section">
+      <h2 class="section-title">Pizzas</h2>
+      <div class="grid" id="pizzas-grid"></div>
+    </div>
+
+    <div id="salgados-section">
+      <h2 class="section-title">Salgados</h2>
+      <div class="grid" id="salgados-grid"></div>
+    </div>
+
+    <div id="bebidas-section">
+      <h2 class="section-title">Bebidas</h2>
+      <div class="grid" id="bebidas-grid"></div>
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <span id="foot-hours">18h – 2.00h</span>
+  <span id="foot-address"></span>
+</footer>
+
+<script src="/static/client.js"></script>
+</body>
+</html>

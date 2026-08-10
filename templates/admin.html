@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel · Rey Pizzaria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <img class="brand-logo" id="brand-logo" src="" alt="Rey Pizzaria" style="display:none;">
+    <span>Painel do administrador</span>
+  </div>
+  <a class="admin-nav" href="/">ver como cliente →</a>
+</header>
+
+<main class="wrap">
+
+  <section class="panel">
+    <h2>Loja</h2>
+    <div class="row">
+      <div class="field">
+        <label>Abre às</label>
+        <input type="text" id="hour-open" placeholder="18:00">
+      </div>
+      <div class="field">
+        <label>Fecha às</label>
+        <input type="text" id="hour-close" placeholder="20:00">
+      </div>
+    </div>
+    <div class="field">
+      <label>Status agora</label>
+      <div class="status-toggle">
+        <button type="button" data-status="auto">Automático (pelo horário)</button>
+        <button type="button" data-status="true">Forçar aberto</button>
+        <button type="button" data-status="false">Forçar fechado</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Endereço</label>
+      <input type="text" id="store-address">
+    </div>
+    <div class="field">
+      <label>Logo da pizzaria</label>
+      <input type="file" id="store-logo-file" accept="image/png,image/jpeg,image/webp,image/gif">
+      <div class="image-preview" id="store-logo-preview"><span>Nenhuma imagem selecionada</span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Post do dia</h2>
+    <div class="field">
+      <label>Título</label>
+      <input type="text" id="post-title">
+    </div>
+    <div class="field">
+      <label>Texto</label>
+      <textarea id="post-text"></textarea>
+    </div>
+    <div class="field">
+      <label>Imagem do post</label>
+      <input type="file" id="post-image-file" accept="image/png,image/jpeg,image/webp,image/gif">
+      <div class="image-preview post-image-preview" id="post-image-preview"><span>Nenhuma imagem selecionada</span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading-row"><h2>Promoções</h2><button type="button" class="add-item-btn add-promo-btn">+ Adicionar promoção</button></div>
+    <div id="promos-list"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading-row"><h2>Cardápio — Pizzas</h2><button type="button" class="add-item-btn" data-category="pizza">+ Adicionar pizza</button></div>
+    <div id="pizzas-list"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading-row"><h2>Cardápio — Salgados</h2><button type="button" class="add-item-btn" data-category="salgado">+ Adicionar salgado</button></div>
+    <div id="salgados-list"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading-row"><h2>Cardápio — Bebidas</h2><button type="button" class="add-item-btn" data-category="bebida">+ Adicionar bebida</button></div>
+    <div id="bebidas-list"></div>
+  </section>
+
+  <div class="save-bar">
+    <button class="save-btn" id="save-btn">Salvar alterações</button>
+  </div>
+
+</main>
+
+<div class="toast" id="toast">Alterações salvas</div>
+
+<div class="crop-modal" id="crop-modal" aria-hidden="true">
+  <div class="crop-dialog" role="dialog" aria-modal="true" aria-labelledby="crop-title">
+    <div class="crop-header">
+      <div>
+        <h2 id="crop-title">Ajustar imagem</h2>
+        <p id="crop-help">Arraste a foto e use o zoom para escolher o enquadramento.</p>
+      </div>
+      <button type="button" class="crop-close" id="crop-cancel" aria-label="Cancelar">×</button>
+    </div>
+
+    <div class="crop-canvas-wrap" id="crop-canvas-wrap">
+      <canvas id="crop-canvas"></canvas>
+    </div>
+
+    <div class="crop-controls">
+      <label for="crop-zoom">Zoom</label>
+      <input id="crop-zoom" type="range" min="0.2" max="3" step="0.01" value="1">
+      <span id="crop-zoom-value">100%</span>
+      <button type="button" class="editor-fit-btn" id="fit-image-btn">Ajustar imagem completa</button>
+    </div>
+
+    <div class="crop-actions">
+      <button type="button" class="crop-secondary" id="crop-cancel-bottom">Cancelar</button>
+      <button type="button" class="save-btn crop-save" id="crop-save">Usar esta imagem</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>
