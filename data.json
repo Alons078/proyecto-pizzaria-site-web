@@ -1,20 +1,4 @@
 {
-  "store": {
-    "address": "Rua das Laranjeiras, 123 - Rio de Janeiro",
-    "force_status": null,
-    "hours": {
-      "open": "18:00",
-      "close": "20:00"
-    },
-    "is_open": false,
-    "logo": "/static/uploads/c516aeac800a443687ac74b75b2ab11a.png",
-    "name": "Rey Pizzaria"
-  },
-  "today_post": {
-    "title": "Hoje tem fornada nova!",
-    "text": "Chegou o forno quente e a massa descansada. Hoje o destaque e a pizza de calabresa acebolada, saindo direto pra sua mesa entre 18h e 20h.",
-    "image": "/static/uploads/9bc44462dbd04460bb439f658836dee0.jpg"
-  },
   "items": [
     {
       "category": "pizza",
@@ -87,15 +71,6 @@
       "name": "Suco de Laranja",
       "price": 7,
       "promo_extra": 0
-    },
-    {
-      "category": "pizza",
-      "description": "",
-      "id": 10,
-      "image": "/static/uploads/089dd5ab696948e19df5deb29b5310e7.jpg",
-      "name": "Novo produto",
-      "price": 0,
-      "promo_extra": 0
     }
   ],
   "promotions": [
@@ -107,14 +82,43 @@
       "price": 50,
       "slots": [
         {
-          "label": "Pizza 1",
-          "category": "pizza"
+          "category": "pizza",
+          "label": "Pizza 1"
         },
         {
-          "label": "Pizza 2",
-          "category": "pizza"
+          "category": "pizza",
+          "label": "Pizza 2"
         }
       ]
     }
-  ]
+  ],
+  "shifts": [
+    {
+      "id": 1,
+      "name": "Turno 1 (18h-19h)",
+      "password": "turno1-troque-esta-senha"
+    },
+    {
+      "id": 2,
+      "name": "Turno 2 (19h-20h)",
+      "password": "turno2-troque-esta-senha"
+    }
+  ],
+  "store": {
+    "address": "Rua das Laranjeiras, 123 - Rio de Janeiro",
+    "force_status": null,
+    "hours": {
+      "close": "20:00",
+      "open": "18:00"
+    },
+    "is_open": false,
+    "logo": "/static/uploads/c516aeac800a443687ac74b75b2ab11a.png",
+    "name": "Rey Pizzaria"
+  },
+  "today_post": {
+    "image": "/static/uploads/9bc44462dbd04460bb439f658836dee0.jpg",
+    "text": "Chegou o forno quente e a massa descansada. Hoje o destaque e a pizza de calabresa acebolada, saindo direto pra sua mesa entre 18h e 20h.",
+    "title": "Hoje tem fornada nova!"
+  },
+  "sales": []
 }
