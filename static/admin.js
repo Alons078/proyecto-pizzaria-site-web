@@ -2,10 +2,12 @@ let currentData = null;
 
 async function loadData() {
   try {
-    const res = await fetch("/api/data");
+    const res = await fetch("/api/admin/data");
+    if (res.status === 401) { window.location.href = "/admin/login"; return; }
     if (!res.ok) throw new Error("Não foi possível carregar os dados.");
     currentData = await res.json();
     currentData.promotions = Array.isArray(currentData.promotions) ? currentData.promotions : [];
+    currentData.shifts = Array.isArray(currentData.shifts) ? currentData.shifts : [];
     fillForm(currentData);
   } catch (error) {
     console.error(error);
@@ -33,6 +35,7 @@ function fillForm(data) {
   document.getElementById("post-title").value = today_post.title;
   document.getElementById("post-text").value = today_post.text;
   fillPromoList(data.promotions, items);
+  fillShiftList(data.shifts);
   fillItemList("pizzas-list", items.filter((i) => i.category === "pizza"));
   fillItemList("salgados-list", items.filter((i) => i.category === "salgado"));
   fillItemList("bebidas-list", items.filter((i) => i.category === "bebida"));
@@ -392,6 +395,92 @@ function addPromoSlot(card) {
   slots.appendChild(div);
 }
 
+function fillShiftList(shifts) {
+  const container = document.getElementById("shifts-list");
+  if (!shifts.length) {
+    container.innerHTML = `<div class="empty-items">Nenhum turno cadastrado. Sem turnos, ninguém consegue entrar em /funcionarios.</div>`;
+    return;
+  }
+  container.innerHTML = shifts.map((shift) => `
+    <div class="shift-admin-card" data-shift-id="${escapeHTML(shift.id)}">
+      <div class="row">
+        <div class="field"><label>Nome do turno</label><input type="text" class="shift-name" value="${escapeHTML(shift.name)}" placeholder="Ex.: Turno 1 (18h-19h)"></div>
+        <div class="field"><label>Senha do turno</label><input type="text" class="shift-password" value="${escapeHTML(shift.password)}" placeholder="Senha para este turno"></div>
+      </div>
+      <button type="button" class="delete-item-btn delete-shift-btn">Excluir turno</button>
+    </div>`).join("");
+
+  container.querySelectorAll(".delete-shift-btn").forEach((btn) => btn.addEventListener("click", () => removeShift(btn.closest(".shift-admin-card").dataset.shiftId)));
+}
+
+function addShift() {
+  const ids = currentData.shifts.map((s) => Number(s.id)).filter(Number.isFinite);
+  const nextId = ids.length ? Math.max(...ids) + 1 : 1;
+  currentData.shifts.push({ id: nextId, name: `Turno ${nextId}`, password: "" });
+  fillForm(currentData);
+  const card = document.querySelector(`.shift-admin-card[data-shift-id="${nextId}"]`);
+  card?.scrollIntoView({ behavior: "smooth", block: "center" });
+  card?.querySelector(".shift-name")?.focus();
+}
+
+function removeShift(id) {
+  const shift = currentData.shifts.find((s) => String(s.id) === String(id));
+  if (!shift || !window.confirm(`Excluir o turno "${shift.name}"? Quem usa essa senha não conseguirá mais entrar em /funcionarios.`)) return;
+  currentData.shifts = currentData.shifts.filter((s) => String(s.id) !== String(id));
+  fillForm(currentData);
+}
+
+function formatPrice(value) {
+  return `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
+}
+
+async function loadSales() {
+  const statsEl = document.getElementById("sales-stats");
+  const tableEl = document.getElementById("sales-table-wrap");
+  if (!statsEl || !tableEl) return;
+  try {
+    const res = await fetch("/api/admin/sales");
+    if (res.status === 401) return;
+    if (!res.ok) throw new Error("Não foi possível carregar as vendas.");
+    const data = await res.json();
+
+    const byShiftHTML = Object.entries(data.stats.by_shift)
+      .map(([name, total]) => `<div class="sales-stat-card"><span>${escapeHTML(name)}</span><strong>${formatPrice(total)}</strong></div>`)
+      .join("") || `<div class="empty-items">Nenhuma venda registrada ainda.</div>`;
+
+    statsEl.innerHTML = `
+      <div class="sales-stat-card sales-stat-highlight"><span>Total geral</span><strong>${formatPrice(data.stats.total_geral)}</strong></div>
+      <div class="sales-stat-card sales-stat-highlight"><span>Últimos 7 dias</span><strong>${formatPrice(data.stats.total_semana)}</strong></div>
+      ${byShiftHTML}`;
+
+    if (!data.sales.length) {
+      tableEl.innerHTML = `<div class="empty-items">Nenhuma venda registrada ainda.</div>`;
+      return;
+    }
+
+    tableEl.innerHTML = `<table class="sales-table">
+      <thead><tr><th>Data/hora</th><th>Turno</th><th>Itens</th><th>Total</th></tr></thead>
+      <tbody>
+        ${data.sales.map((sale) => `<tr>
+          <td>${escapeHTML(formatTimestamp(sale.timestamp))}</td>
+          <td>${escapeHTML(sale.shift_name || "—")}</td>
+          <td>${sale.items.map((i) => `${escapeHTML(i.qty)}× ${escapeHTML(i.name)}`).join(", ")}</td>
+          <td>${formatPrice(sale.total)}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>`;
+  } catch (error) {
+    console.error(error);
+    statsEl.innerHTML = `<div class="empty-items">Erro ao carregar as vendas.</div>`;
+  }
+}
+
+function formatTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "—";
+  return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function addItem(category) {
   const ids = currentData.items.map((item) => Number(item.id)).filter(Number.isFinite);
   const nextId = ids.length ? Math.max(...ids) + 1 : 1;
@@ -433,6 +522,7 @@ document.querySelectorAll(".status-toggle button").forEach((btn) => btn.addEvent
 }));
 document.querySelectorAll(".add-item-btn[data-category]").forEach((button) => button.addEventListener("click", () => addItem(button.dataset.category)));
 document.querySelector(".add-promo-btn")?.addEventListener("click", addPromotion);
+document.querySelector(".add-shift-btn")?.addEventListener("click", addShift);
 document.getElementById("store-logo-file").addEventListener("change", async function () {
   await handleSingleImageUpload(this, (url) => { currentData.store.logo = url; }, "store-logo-preview", 1, "image/png");
 });
@@ -460,11 +550,21 @@ function collectForm() {
     return { ...existing, name: card.querySelector(".promo-name").value.trim(), price: parseFloat(card.querySelector(".promo-price").value) || 0, image: existing?.image || "", description: card.querySelector(".promo-description").value.trim(), slots };
   });
 
+  const shifts = [...document.querySelectorAll(".shift-admin-card")].map((card) => {
+    const existing = currentData.shifts.find((s) => String(s.id) === String(card.dataset.shiftId));
+    const name = card.querySelector(".shift-name").value.trim();
+    const password = card.querySelector(".shift-password").value.trim();
+    if (!name) throw new Error("Todos os turnos precisam ter um nome.");
+    if (!password) throw new Error(`O turno "${name}" precisa ter uma senha.`);
+    return { ...existing, name, password };
+  });
+
   return {
     store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), logo: currentData.store.logo || "" },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
-    promotions
+    promotions,
+    shifts
   };
 }
 
@@ -487,3 +587,4 @@ function showToast(message = "Alterações salvas") {
 
 setupCropper();
 loadData();
+loadSales();

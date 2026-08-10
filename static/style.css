@@ -743,3 +743,212 @@ footer.foot {
   .crop-actions { flex-direction: column-reverse; }
   .crop-actions button { width: 100%; }
 }
+
+/* ---------- login (admin e funcionários) ---------- */
+.admin-nav-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.admin-logout-btn {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(360px, 100%);
+  background: var(--paper-warm);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.login-card h1 {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 24px;
+  margin: 0 0 6px;
+}
+
+.login-sub {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+
+.login-error {
+  color: var(--tomato);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+
+.login-btn { width: 100%; margin-top: 6px; }
+
+.login-back {
+  text-align: center;
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+/* ---------- turnos de funcionários ---------- */
+.shift-admin-card {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.shift-admin-card:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+
+/* ---------- vendas ---------- */
+.sales-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.sales-stat-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sales-stat-card span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+}
+
+.sales-stat-card strong {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--ember-dark);
+}
+
+.sales-stat-highlight { border-color: var(--ember); }
+
+.sales-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.sales-table th, .sales-table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sales-table th {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 700px) {
+  .sales-table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+/* ---------- página de funcionários (ponto de venda) ---------- */
+.pos-category { margin-bottom: 22px; }
+
+.pos-category-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 17px;
+  margin: 0 0 12px;
+  color: var(--ink);
+}
+
+.pos-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.pos-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pos-card-name { font-weight: 600; font-size: 14px; }
+
+.pos-card-price {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ember-dark);
+}
+
+.pos-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.pos-step-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-warm);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pos-qty {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.pos-cart-bar {
+  position: sticky;
+  bottom: 18px;
+  margin-top: 22px;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  box-shadow: 0 8px 24px rgba(43, 27, 16, 0.12);
+}
+
+.pos-cart-total {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.pos-cart-total strong { color: var(--ember-dark); }
