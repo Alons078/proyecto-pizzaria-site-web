@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Funcionários · Rey Pizzaria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><span>Rey Pizzaria · Funcionários</span></div>
+  <a class="admin-nav" href="/">ver como cliente →</a>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" id="pos-login">
+    <h2>Entrar no turno</h2>
+    <p class="login-sub">Digite a senha do seu turno para registrar as vendas.</p>
+    <p class="login-error" id="pos-login-error" style="display:none;"></p>
+    <div class="field">
+      <label>Senha do turno</label>
+      <input type="password" id="pos-password" autocomplete="off">
+    </div>
+    <button type="button" class="save-btn" id="pos-login-btn">Entrar</button>
+  </section>
+
+  <section class="panel" id="pos-panel" style="display:none;">
+    <div class="panel-heading-row">
+      <h2 id="pos-shift-name">Turno</h2>
+      <button type="button" class="add-item-btn" id="pos-logout-btn">Encerrar turno</button>
+    </div>
+    <p class="login-sub">Toque em + para adicionar produtos à venda atual e depois registre.</p>
+    <div id="pos-grid" class="pos-grid"></div>
+
+    <div class="pos-cart-bar">
+      <div class="pos-cart-total">Total da venda: <strong id="pos-cart-total">R$ 0,00</strong></div>
+      <button type="button" class="save-btn" id="pos-register-btn">Registrar venda</button>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast">Venda registrada</div>
+
+<script src="/static/funcionarios.js"></script>
+</body>
+</html>

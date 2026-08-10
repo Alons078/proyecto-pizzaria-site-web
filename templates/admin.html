@@ -15,7 +15,11 @@
     <img class="brand-logo" id="brand-logo" src="" alt="Rey Pizzaria" style="display:none;">
     <span>Painel do administrador</span>
   </div>
-  <a class="admin-nav" href="/">ver como cliente →</a>
+  <div class="admin-nav-group">
+    <a class="admin-nav" href="/funcionarios">página dos funcionários →</a>
+    <a class="admin-nav" href="/">ver como cliente →</a>
+    <form method="post" action="/admin/logout"><button type="submit" class="admin-nav admin-logout-btn">sair</button></form>
+  </div>
 </header>
 
 <main class="wrap">
@@ -86,6 +90,18 @@
   <section class="panel">
     <div class="panel-heading-row"><h2>Cardápio — Bebidas</h2><button type="button" class="add-item-btn" data-category="bebida">+ Adicionar bebida</button></div>
     <div id="bebidas-list"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading-row"><h2>Turnos de funcionários</h2><button type="button" class="add-item-btn add-shift-btn">+ Adicionar turno</button></div>
+    <p class="login-sub">Cada turno tem sua própria senha. Compartilhe a senha só com quem estiver trabalhando naquele bloco de horário. A página de registro fica em <strong>/funcionarios</strong>.</p>
+    <div id="shifts-list"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Vendas dos funcionários</h2>
+    <div class="sales-stats" id="sales-stats"></div>
+    <div id="sales-table-wrap"></div>
   </section>
 
   <div class="save-bar">
