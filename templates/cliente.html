@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rei Pizzaria</title>
-<link rel="preconnect" href="../logo.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -12,7 +12,7 @@
 
 <header class="top">
   <div class="brand">
-    <a href="../logo.jpg" target="_blank">
+    <a href="/">
       <img class="brand-logo" id="brand-logo" src="" alt="Rey Pizzaria" style="display:none;">
       <span id="brand-name">Rei Pizzaria</span>
     </a>
@@ -56,9 +56,17 @@
 </main>
 
 <footer class="foot">
-  <span id="foot-hours">18h – 2.00h</span>
+  <span id="foot-hours">18h – 20h</span>
   <span id="foot-address"></span>
 </footer>
+
+<div class="cart-bar" id="cart-bar">
+  <div class="cart-info">
+    <span id="cart-count">0 itens</span>
+    <strong id="cart-total">R$ 0,00</strong>
+  </div>
+  <button type="button" class="cart-checkout-btn" id="cart-checkout-btn">Finalizar no WhatsApp</button>
+</div>
 
 <script src="/static/client.js"></script>
 </body>
