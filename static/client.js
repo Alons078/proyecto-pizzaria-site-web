@@ -59,6 +59,36 @@ function render(data) {
   document.getElementById("foot-hours").textContent =
     `${store.hours.open} – ${store.hours.close}`;
   document.getElementById("foot-address").textContent = store.address;
+
+  setupReveal();
+}
+
+function setupReveal() {
+  const targets = document.querySelectorAll(".reveal:not(.is-visible)");
+  if (!targets.length) return;
+
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)"
+  ).matches;
+
+  if (prefersReducedMotion || !("IntersectionObserver" in window)) {
+    targets.forEach((el) => el.classList.add("is-visible"));
+    return;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.15 }
+  );
+
+  targets.forEach((el) => observer.observe(el));
 }
 
 function fillGrid(elementId, list) {
@@ -67,7 +97,7 @@ function fillGrid(elementId, list) {
   grid.innerHTML = list
     .map(
       (item) => `
-    <div class="card">
+    <div class="card reveal">
       <div class="image-slot small">
         ${
           item.image
@@ -114,7 +144,7 @@ function fillPromotions(promotions, items) {
         </select>
       </div>`;
     }).join("");
-    return `<div class="promo-card" data-promo-id="${escapeHTML(promo.id)}">
+    return `<div class="promo-card reveal" data-promo-id="${escapeHTML(promo.id)}">
       <div class="image-slot small">${promo.image ? `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">` : `<span>foto</span>`}</div>
       <div class="name">${escapeHTML(promo.name)}</div>
       ${promo.description ? `<div class="description">${escapeHTML(promo.description)}</div>` : ""}
