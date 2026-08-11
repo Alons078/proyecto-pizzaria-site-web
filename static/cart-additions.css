@@ -27,16 +27,22 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  border: 1px solid var(--gold-line);
+  border: none;
   background: transparent;
+  background-color: transparent;
   color: var(--ember);
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.2s ease, transform 0.15s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow: none;
+  outline: none;
 }
 
 .qty-btn:hover:not(:disabled) {
