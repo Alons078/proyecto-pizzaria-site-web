@@ -68,6 +68,32 @@
   <button type="button" class="cart-checkout-btn" id="cart-checkout-btn">Finalizar no WhatsApp</button>
 </div>
 
+<div class="crop-modal" id="cart-modal" aria-hidden="true">
+  <div class="crop-dialog cart-dialog" role="dialog" aria-modal="true" aria-labelledby="cart-modal-title">
+    <div class="crop-header">
+      <div>
+        <h2 id="cart-modal-title">Confirmar pedido</h2>
+        <p>Revise os itens e escreva uma observação se precisar (ex.: sem cebola).</p>
+      </div>
+      <button type="button" class="crop-close" id="cart-modal-close" aria-label="Fechar">×</button>
+    </div>
+
+    <div class="cart-modal-items" id="cart-modal-items"></div>
+
+    <div class="field">
+      <label>Observação geral do pedido (opcional)</label>
+      <textarea id="cart-general-note" placeholder="Ex.: troco para R$ 100, entregar na portaria..."></textarea>
+    </div>
+
+    <div class="cart-modal-total">Total do pedido: <strong id="cart-modal-total">R$ 0,00</strong></div>
+
+    <div class="crop-actions">
+      <button type="button" class="crop-secondary" id="cart-modal-cancel">Voltar</button>
+      <button type="button" class="save-btn crop-save" id="cart-modal-confirm">Confirmar e abrir WhatsApp</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/client.js"></script>
 </body>
 </html>
