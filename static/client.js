@@ -236,17 +236,32 @@ function fillPromotions(promotions, items) {
       warning.textContent = complete ? "" : "Selecione todas as opções para adicionar ao pedido.";
       plusBtn.disabled = !complete;
 
-      // Se a promoção já está no carrinho, mantém a quantidade mas atualiza o preço/composição atual.
-      if (cart[key]) {
-        if (!complete) {
+      if (!complete) {
+        // Seleção incompleta: remove do carrinho se estava lá.
+        if (cart[key]) {
           delete cart[key];
           document.getElementById(`qty-promo-${promo.id}`).textContent = "0";
-        } else {
-          cart[key].unitPrice = total;
-          cart[key].name = `${promo.name} (${chosenNames.join(" + ")})`;
+          updateCartBar();
         }
-        updateCartBar();
+        return;
       }
+
+      if (cart[key]) {
+        // Já estava no carrinho: mantém a quantidade, só atualiza preço/composição.
+        cart[key].unitPrice = total;
+        cart[key].name = `${promo.name} (${chosenNames.join(" + ")})`;
+      } else {
+        // Acabou de completar a seleção agora: adiciona 1 automaticamente.
+        cart[key] = {
+          type: "promo",
+          id: promo.id,
+          name: `${promo.name} (${chosenNames.join(" + ")})`,
+          qty: 1,
+          unitPrice: total,
+        };
+        document.getElementById(`qty-promo-${promo.id}`).textContent = "1";
+      }
+      updateCartBar();
     };
 
     selects.forEach((select) => select.addEventListener("change", refresh));
