@@ -1,54 +1,28 @@
 REY PIZZARIA — prototipo
 
-Cómo correrlo en tu computadora:
-1. Necesitas Python instalado. Instala las dependencias:
-   pip install -r requirements.txt --break-system-packages
+Cómo correrlo:
+1. Necesitas Python instalado, y Flask (pip install flask --break-system-packages
+   si no lo tienes).
 2. Abre una terminal DENTRO de esta carpeta (rey-pizzaria).
-3. (Opcional pero recomendado) define una contraseña de administrador:
-   - Mac/Linux: export ADMIN_PASSWORD="la-clave-que-quieras"
-   - Windows (cmd):  set ADMIN_PASSWORD=la-clave-que-quieras
-   Si no la defines, se usa la clave por defecto "admin123" — sirve
-   para probar en tu compu, pero NO la dejes así en Render.
-4. Ejecuta: python3 app.py
-5. En el navegador abre:
-   - http://127.0.0.1:5000/               -> vista del cliente (blog)
-   - http://127.0.0.1:5000/admin          -> panel del administrador (pide contraseña)
-   - http://127.0.0.1:5000/funcionarios   -> registro de ventas por turno (pide la senha del turno)
-
-Antes de subirlo a Render (o cualquier hosting real), configura estas
-variables de entorno desde el panel de Render ("Environment"):
-- ADMIN_PASSWORD -> la contraseña real del panel /admin
-- SECRET_KEY     -> cualquier texto largo y aleatorio (ej. generado con
-                     `python3 -c "import secrets; print(secrets.token_hex(16))"`)
-Sin SECRET_KEY, las sesiones (logins) se cierran solas cada vez que
-Render reinicia el servidor. Render define la variable PORT solo,
-no hace falta tocarla. El Procfile ya usa gunicorn en vez del
-servidor de pruebas de Flask.
+3. Ejecuta: python3 app.py
+4. En el navegador abre:
+   - http://127.0.0.1:5000/        -> vista del cliente (blog)
+   - http://127.0.0.1:5000/admin   -> panel del administrador
 
 Estructura que debe quedar (no muevas archivos sueltos):
   rey-pizzaria/
   ├── app.py
   ├── data.json
-  ├── requirements.txt
-  ├── Procfile
-  ├── templates/  (cliente.html, admin.html, admin_login.html, funcionarios.html)
-  └── static/     (style.css, client.js, admin.js, funcionarios.js, images/logo.jpg)
+  ├── templates/  (cliente.html, admin.html)
+  └── static/     (style.css, client.js, admin.js, images/logo.jpg)
 
 Qué cambió en esta versión:
 - Fondo blanco en toda la página (antes era oscuro).
 - Nombre del negocio: "Rey Pizzaria".
-- Tu logo ya está incluido y aparece chico junto al nombre en el
-  header, y grande arriba del post del día. Para cambiarlo, usa el
-  campo "Logo da pizzaria" dentro de /admin.
-- Cardápio con tres categorías: Pizzas, Salgados y Bebidas.
-- El panel /admin ahora pide contraseña para entrar (ver arriba).
-- Nueva página /funcionarios: cada turno de 2 horas tiene su propia
-  contraseña (la configuras en /admin, sección "Turnos de
-  funcionários"). El empleado entra con la contraseña de su turno
-  y va registrando lo que vende. El administrador ve el resumen y
-  el detalle de esas ventas en /admin, sección "Vendas dos
-  funcionários" (total general, total de los últimos 7 días y
-  desglose por turno).
-- Se corrigieron dos errores del prototipo anterior: un enlace roto
-  del logo en la vista del cliente, y un producto de prueba vacío
-  que había quedado en el cardápio.
+- Tu logo ya está incluido (static/images/logo.jpg) y aparece chico
+  junto al nombre en el header, y grande arriba del post del día.
+  Si luego quieres cambiarlo, solo reemplaza ese archivo por otro
+  con el mismo nombre, o pega una URL nueva en el panel de admin
+  (campo "URL do logo").
+- Cardápio con tres categorías: Pizzas, Salgados y Bebidas
+  (agregué 3 bebidas de ejemplo, edítalas desde /admin).
