@@ -1,9 +1,12 @@
 // ⚠️ Troque pelo número de WhatsApp da pizzaria (com DDI+DDD, só números).
 const WHATSAPP_NUMBER = "5521999999999";
+// ⚠️ Troque pela chave Pix da pizzaria (CPF/CNPJ, e-mail, telefone ou chave aleatória).
+const PIX_KEY = "sua-chave-pix-aqui";
 
 let storeItems = [];
 let storePromotions = [];
 let cart = {}; // key -> { type: 'item'|'promo', id, name, qty, unitPrice? }
+let paymentMethod = null; // "pix" | "cartao" | "dinheiro"
 
 async function loadData() {
   try {
@@ -310,12 +313,32 @@ function buildWhatsAppMessage() {
   const total = Object.values(cart).reduce((sum, e) => sum + e.qty * e.unitPrice, 0);
   const generalNote = document.getElementById("cart-general-note")?.value.trim();
 
+  const paymentLines = [];
+  if (paymentMethod === "pix") {
+    paymentLines.push(`Pagamento: Pix (chave: ${PIX_KEY})`);
+    paymentLines.push("Vou enviar o comprovante aqui pelo WhatsApp.");
+  } else if (paymentMethod === "cartao") {
+    paymentLines.push("Pagamento: Cartão na entrega (débito/crédito)");
+  } else if (paymentMethod === "dinheiro") {
+    const trocoInput = document.getElementById("troco-valor");
+    const trocoPara = parseFloat(trocoInput?.value);
+    if (trocoInput?.value && !Number.isNaN(trocoPara)) {
+      const troco = trocoPara - total;
+      paymentLines.push(`Pagamento: Dinheiro — troco para ${formatPrice(trocoPara)}`);
+      if (troco > 0) paymentLines.push(`(troco de ${formatPrice(troco)})`);
+    } else {
+      paymentLines.push("Pagamento: Dinheiro — sem troco (valor exato)");
+    }
+  }
+
   const message = [
     "Olá! Quero fazer um pedido na Rey Pizzaria:",
     "",
     ...lines,
     "",
     `Total: ${formatPrice(total)}`,
+    "",
+    ...paymentLines,
     ...(generalNote ? ["", `Observações: ${generalNote}`] : []),
   ].join("\n");
   return message;
@@ -360,6 +383,15 @@ function openCartModal() {
   const total = Object.values(cart).reduce((sum, e) => sum + e.qty * e.unitPrice, 0);
   document.getElementById("cart-modal-total").textContent = formatPrice(total);
 
+  // reseta a forma de pagamento a cada abertura
+  paymentMethod = null;
+  document.querySelectorAll(".payment-btn").forEach((btn) => btn.classList.remove("active"));
+  document.getElementById("troco-field").style.display = "none";
+  document.getElementById("pix-info").style.display = "none";
+  document.getElementById("troco-valor").value = "";
+  document.getElementById("payment-warning").textContent = "";
+  document.getElementById("pix-key-display").textContent = PIX_KEY;
+
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");
   document.body.classList.add("crop-open");
@@ -373,6 +405,28 @@ function closeCartModal() {
   document.body.classList.remove("crop-open");
 }
 
+document.querySelectorAll(".payment-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    paymentMethod = btn.dataset.method;
+    document.querySelectorAll(".payment-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    document.getElementById("troco-field").style.display = paymentMethod === "dinheiro" ? "flex" : "none";
+    document.getElementById("pix-info").style.display = paymentMethod === "pix" ? "block" : "none";
+    document.getElementById("payment-warning").textContent = "";
+  });
+});
+
+document.getElementById("copy-pix-btn")?.addEventListener("click", async (event) => {
+  try {
+    await navigator.clipboard.writeText(PIX_KEY);
+    const btn = event.currentTarget;
+    const original = btn.textContent;
+    btn.textContent = "Copiado!";
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  } catch (error) {
+    console.error(error);
+  }
+});
+
 document.getElementById("cart-checkout-btn")?.addEventListener("click", () => {
   if (!Object.keys(cart).length) return;
   openCartModal();
@@ -385,6 +439,10 @@ document.getElementById("cart-modal")?.addEventListener("click", (event) => {
 });
 
 document.getElementById("cart-modal-confirm")?.addEventListener("click", () => {
+  if (!paymentMethod) {
+    document.getElementById("payment-warning").textContent = "Selecione uma forma de pagamento.";
+    return;
+  }
   const message = buildWhatsAppMessage();
   const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");

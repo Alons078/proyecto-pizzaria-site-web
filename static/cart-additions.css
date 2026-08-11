@@ -194,3 +194,82 @@ footer.foot { margin-bottom: 70px; }
 }
 
 .cart-modal-total strong { color: var(--ember); }
+
+/* ---------- forma de pagamento ---------- */
+
+.payment-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.payment-btn {
+  flex: 1;
+  min-width: 90px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.payment-btn.active {
+  border-color: var(--ember);
+  color: var(--ember-dark);
+  background: rgba(201, 151, 63, 0.16);
+}
+
+.payment-warning {
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--tomato);
+  margin: 6px 0 0;
+}
+
+.pix-info {
+  background: var(--paper);
+  border: 1px dashed var(--gold-line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.pix-info label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+}
+
+.pix-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 0 8px;
+}
+
+.pix-key-row span {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.pix-copy-btn {
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pix-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
