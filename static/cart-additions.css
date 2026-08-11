@@ -138,3 +138,59 @@
 
 /* dá espaço para o carrinho flutuante não tapar o rodapé */
 footer.foot { margin-bottom: 70px; }
+
+/* ---------- modal de resumo do pedido ---------- */
+/* reaproveita as classes .crop-modal / .crop-dialog / .crop-header /
+   .crop-close / .crop-actions / .crop-secondary já definidas para o
+   editor de imagens do admin — aqui só o conteúdo específico do pedido. */
+
+.cart-dialog { width: min(480px, 100%); }
+
+.cart-modal-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-bottom: 16px;
+}
+
+.cart-modal-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--paper);
+}
+
+.cart-modal-item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.cart-item-note {
+  width: 100%;
+  background: var(--paper-warm);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+.cart-item-note::placeholder { color: var(--ink-soft); }
+
+.cart-modal-total {
+  font-family: var(--font-mono);
+  color: var(--ink-soft);
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-bottom: 4px;
+}
+
+.cart-modal-total strong { color: var(--ember); }

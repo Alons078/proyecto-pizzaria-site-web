@@ -301,24 +301,94 @@ function updateCartBar() {
 }
 
 function buildWhatsAppMessage() {
-  const entries = Object.values(cart);
-  const lines = entries.map((e) => `• ${e.qty}x ${e.name} — ${formatPrice(e.qty * e.unitPrice)}`);
-  const total = entries.reduce((sum, e) => sum + e.qty * e.unitPrice, 0);
+  const entries = Object.entries(cart);
+  const lines = entries.map(([, e]) => {
+    let line = `• ${e.qty}x ${e.name} — ${formatPrice(e.qty * e.unitPrice)}`;
+    if (e.note && e.note.trim()) line += `\n   obs: ${e.note.trim()}`;
+    return line;
+  });
+  const total = Object.values(cart).reduce((sum, e) => sum + e.qty * e.unitPrice, 0);
+  const generalNote = document.getElementById("cart-general-note")?.value.trim();
+
   const message = [
     "Olá! Quero fazer um pedido na Rey Pizzaria:",
     "",
     ...lines,
     "",
     `Total: ${formatPrice(total)}`,
+    ...(generalNote ? ["", `Observações: ${generalNote}`] : []),
   ].join("\n");
   return message;
 }
 
+/* ---------------- modal de resumo do pedido ---------------- */
+
+function openCartModal() {
+  const modal = document.getElementById("cart-modal");
+  const list = document.getElementById("cart-modal-items");
+  if (!modal || !list) return;
+
+  const entries = Object.entries(cart);
+  if (!entries.length) return;
+
+  list.innerHTML = entries
+    .map(
+      ([key, e]) => `
+    <div class="cart-modal-item">
+      <div class="cart-modal-item-row">
+        <span>${e.qty}x ${escapeHTML(e.name)}</span>
+        <span>${formatPrice(e.qty * e.unitPrice)}</span>
+      </div>
+      <input
+        type="text"
+        class="cart-item-note"
+        data-key="${escapeHTML(key)}"
+        placeholder="Alguma observação? Ex.: sem cebola, bem passada..."
+        value="${escapeHTML(e.note || "")}"
+      >
+    </div>`
+    )
+    .join("");
+
+  list.querySelectorAll(".cart-item-note").forEach((input) => {
+    input.addEventListener("input", () => {
+      const key = input.dataset.key;
+      if (cart[key]) cart[key].note = input.value;
+    });
+  });
+
+  const total = Object.values(cart).reduce((sum, e) => sum + e.qty * e.unitPrice, 0);
+  document.getElementById("cart-modal-total").textContent = formatPrice(total);
+
+  modal.classList.add("is-open");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("crop-open");
+}
+
+function closeCartModal() {
+  const modal = document.getElementById("cart-modal");
+  if (!modal) return;
+  modal.classList.remove("is-open");
+  modal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("crop-open");
+}
+
 document.getElementById("cart-checkout-btn")?.addEventListener("click", () => {
   if (!Object.keys(cart).length) return;
+  openCartModal();
+});
+
+document.getElementById("cart-modal-close")?.addEventListener("click", closeCartModal);
+document.getElementById("cart-modal-cancel")?.addEventListener("click", closeCartModal);
+document.getElementById("cart-modal")?.addEventListener("click", (event) => {
+  if (event.target.id === "cart-modal") closeCartModal();
+});
+
+document.getElementById("cart-modal-confirm")?.addEventListener("click", () => {
   const message = buildWhatsAppMessage();
   const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");
+  closeCartModal();
 });
 
 loadData();
