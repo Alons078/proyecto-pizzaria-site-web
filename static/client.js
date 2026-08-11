@@ -1,3 +1,10 @@
+// ⚠️ Troque pelo número de WhatsApp da pizzaria (com DDI+DDD, só números).
+const WHATSAPP_NUMBER = "5521999999999";
+
+let storeItems = [];
+let storePromotions = [];
+let cart = {}; // key -> { type: 'item'|'promo', id, name, qty, unitPrice? }
+
 async function loadData() {
   try {
     const res = await fetch("/api/data");
@@ -18,8 +25,14 @@ function escapeHTML(value) {
     .replace(/'/g, "&#039;");
 }
 
+function formatPrice(value) {
+  return `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
+}
+
 function render(data) {
   const { store, today_post, items } = data;
+  storeItems = items;
+  storePromotions = data.promotions || [];
 
   if (store.logo) {
     const headerLogo = document.getElementById("brand-logo");
@@ -51,7 +64,7 @@ function render(data) {
     postImage.innerHTML = `<span>espaço para foto do dia</span>`;
   }
 
-  fillPromotions(data.promotions || [], items);
+  fillPromotions(storePromotions, items);
   fillGrid("pizzas-grid", items.filter((i) => i.category === "pizza"));
   fillGrid("salgados-grid", items.filter((i) => i.category === "salgado"));
   fillGrid("bebidas-grid", items.filter((i) => i.category === "bebida"));
@@ -61,6 +74,7 @@ function render(data) {
   document.getElementById("foot-address").textContent = store.address;
 
   setupReveal();
+  updateCartBar();
 }
 
 function setupReveal() {
@@ -91,6 +105,8 @@ function setupReveal() {
   targets.forEach((el) => observer.observe(el));
 }
 
+/* ---------------- cardápio (produtos) ---------------- */
+
 function fillGrid(elementId, list) {
   const grid = document.getElementById(elementId);
 
@@ -111,17 +127,58 @@ function fillGrid(elementId, list) {
           ? `<div class="description">${escapeHTML(item.description)}</div>`
           : ""
       }
-      <div class="price">R$ ${Number(item.price || 0).toFixed(2)}</div>
+      <div class="card-bottom">
+        <div class="price">${formatPrice(item.price)}</div>
+        <div class="qty-stepper" data-item-id="${item.id}">
+          <button type="button" class="qty-btn" data-action="minus" aria-label="Diminuir">−</button>
+          <span class="qty-value" id="qty-item-${item.id}">0</span>
+          <button type="button" class="qty-btn" data-action="plus" aria-label="Adicionar">+</button>
+        </div>
+      </div>
     </div>`
     )
     .join("");
+
+  grid.querySelectorAll(".qty-stepper").forEach((stepper) => {
+    const id = Number(stepper.dataset.itemId);
+    stepper.querySelectorAll(".qty-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const item = storeItems.find((i) => Number(i.id) === id);
+        if (!item) return;
+        const key = `item:${id}`;
+        const current = cart[key]?.qty || 0;
+        const next = btn.dataset.action === "plus" ? current + 1 : Math.max(0, current - 1);
+        if (next === 0) {
+          delete cart[key];
+        } else {
+          cart[key] = { type: "item", id, name: item.name, qty: next, unitPrice: Number(item.price || 0) };
+        }
+        document.getElementById(`qty-item-${id}`).textContent = String(next);
+        updateCartBar();
+      });
+    });
+  });
 }
 
-loadData();
+/* ---------------- promoções ---------------- */
 
+function categoryLabel(category) {
+  return { pizza: "Pizza", salgado: "Salgado", bebida: "Bebida" }[category] || category;
+}
 
-function formatPrice(value) {
-  return `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
+function computePromoTotal(promo, selects, items) {
+  let total = Number(promo.price || 0);
+  let complete = true;
+  const chosenNames = [];
+  selects.forEach((select) => {
+    if (!select.value) { complete = false; return; }
+    const item = items.find((i) => String(i.id) === String(select.value));
+    if (item) {
+      total += Number(item.promo_extra || 0);
+      chosenNames.push(item.name);
+    }
+  });
+  return { total, complete, chosenNames };
 }
 
 function fillPromotions(promotions, items) {
@@ -150,31 +207,118 @@ function fillPromotions(promotions, items) {
       ${promo.description ? `<div class="description">${escapeHTML(promo.description)}</div>` : ""}
       <div class="promo-base-price">Preço base: ${formatPrice(promo.price)}</div>
       <div class="promo-choices">${slots}</div>
-      <div class="promo-total">Total: <strong>${formatPrice(promo.price)}</strong></div>
       <div class="promo-warning" aria-live="polite"></div>
+      <div class="card-bottom">
+        <div class="promo-total">Total: <strong>${formatPrice(promo.price)}</strong></div>
+        <div class="qty-stepper" data-promo-id="${escapeHTML(promo.id)}">
+          <button type="button" class="qty-btn" data-action="minus" aria-label="Diminuir">−</button>
+          <span class="qty-value" id="qty-promo-${escapeHTML(promo.id)}">0</span>
+          <button type="button" class="qty-btn" data-action="plus" aria-label="Adicionar" disabled>+</button>
+        </div>
+      </div>
     </div>`;
   }).join("");
 
   grid.querySelectorAll(".promo-card").forEach((card) => {
     const promo = promotions.find((p) => String(p.id) === String(card.dataset.promoId));
     const selects = [...card.querySelectorAll(".promo-select")];
-    const updateTotal = () => {
-      let total = Number(promo.price || 0);
-      let complete = true;
-      selects.forEach((select) => {
-        if (!select.value) { complete = false; return; }
-        const item = items.find((i) => String(i.id) === String(select.value));
-        total += Number(item?.promo_extra || 0);
-      });
+    const plusBtn = card.querySelector('.qty-btn[data-action="plus"]');
+    const minusBtn = card.querySelector('.qty-btn[data-action="minus"]');
+    const key = `promo:${promo.id}`;
+
+    const refresh = () => {
+      const { total, complete, chosenNames } = computePromoTotal(promo, selects, items);
       card.querySelector(".promo-total strong").textContent = formatPrice(total);
       const warning = card.querySelector(".promo-warning");
-      warning.textContent = complete ? "" : "Selecione todas as opções para ver o valor final.";
+      warning.textContent = complete ? "" : "Selecione todas as opções para adicionar ao pedido.";
+      plusBtn.disabled = !complete;
+
+      // Se a promoção já está no carrinho, mantém a quantidade mas atualiza o preço/composição atual.
+      if (cart[key]) {
+        if (!complete) {
+          delete cart[key];
+          document.getElementById(`qty-promo-${promo.id}`).textContent = "0";
+        } else {
+          cart[key].unitPrice = total;
+          cart[key].name = `${promo.name} (${chosenNames.join(" + ")})`;
+        }
+        updateCartBar();
+      }
     };
-    selects.forEach((select) => select.addEventListener("change", updateTotal));
-    updateTotal();
+
+    selects.forEach((select) => select.addEventListener("change", refresh));
+
+    plusBtn.addEventListener("click", () => {
+      const { total, complete, chosenNames } = computePromoTotal(promo, selects, items);
+      if (!complete) return;
+      const current = cart[key]?.qty || 0;
+      cart[key] = {
+        type: "promo",
+        id: promo.id,
+        name: `${promo.name} (${chosenNames.join(" + ")})`,
+        qty: current + 1,
+        unitPrice: total,
+      };
+      document.getElementById(`qty-promo-${promo.id}`).textContent = String(cart[key].qty);
+      updateCartBar();
+    });
+
+    minusBtn.addEventListener("click", () => {
+      const current = cart[key]?.qty || 0;
+      const next = Math.max(0, current - 1);
+      if (next === 0) {
+        delete cart[key];
+      } else {
+        cart[key].qty = next;
+      }
+      document.getElementById(`qty-promo-${promo.id}`).textContent = String(next);
+      updateCartBar();
+    });
+
+    refresh();
   });
 }
 
-function categoryLabel(category) {
-  return { pizza: "Pizza", salgado: "Salgado", bebida: "Bebida" }[category] || category;
+/* ---------------- carrinho flutuante + WhatsApp ---------------- */
+
+function updateCartBar() {
+  const bar = document.getElementById("cart-bar");
+  if (!bar) return;
+
+  const entries = Object.values(cart);
+  const totalQty = entries.reduce((sum, e) => sum + e.qty, 0);
+  const totalPrice = entries.reduce((sum, e) => sum + e.qty * e.unitPrice, 0);
+
+  if (!totalQty) {
+    bar.classList.remove("is-visible");
+    return;
+  }
+
+  bar.classList.add("is-visible");
+  document.getElementById("cart-count").textContent =
+    totalQty === 1 ? "1 item" : `${totalQty} itens`;
+  document.getElementById("cart-total").textContent = formatPrice(totalPrice);
 }
+
+function buildWhatsAppMessage() {
+  const entries = Object.values(cart);
+  const lines = entries.map((e) => `• ${e.qty}x ${e.name} — ${formatPrice(e.qty * e.unitPrice)}`);
+  const total = entries.reduce((sum, e) => sum + e.qty * e.unitPrice, 0);
+  const message = [
+    "Olá! Quero fazer um pedido na Rey Pizzaria:",
+    "",
+    ...lines,
+    "",
+    `Total: ${formatPrice(total)}`,
+  ].join("\n");
+  return message;
+}
+
+document.getElementById("cart-checkout-btn")?.addEventListener("click", () => {
+  if (!Object.keys(cart).length) return;
+  const message = buildWhatsAppMessage();
+  const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+  window.open(url, "_blank");
+});
+
+loadData();
