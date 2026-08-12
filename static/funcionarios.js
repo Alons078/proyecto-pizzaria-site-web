@@ -1,17 +1,13 @@
-let posItems = [];
-let cart = {}; // item_id -> qty
-
 function escapeHTML(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/"/g, "&quot;");
 }
 
-function formatPrice(value) {
-  return `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
+function fmtMoney(value) {
+  return "R$ " + Number(value || 0).toFixed(2).replace(".", ",");
 }
 
 function showToast(message = "Venda registrada") {
@@ -21,165 +17,183 @@ function showToast(message = "Venda registrada") {
   setTimeout(() => toast.classList.remove("show"), 2500);
 }
 
-function showLoginError(message) {
-  const el = document.getElementById("pos-login-error");
-  if (!message) {
-    el.style.display = "none";
-    el.textContent = "";
-    return;
+// ---------- login por turno ----------
+
+async function loadTurnosSelect() {
+  try {
+    const res = await fetch("/api/funcionario/turnos");
+    const data = await res.json();
+    const select = document.getElementById("func-turno-select");
+    select.innerHTML = (data.turnos || []).map((t) =>
+      `<option value="${t.id}">${escapeHTML(t.label)} (${escapeHTML(t.hora_inicio)}–${escapeHTML(t.hora_fim)})</option>`
+    ).join("");
+  } catch (error) {
+    console.error(error);
   }
-  el.textContent = message;
-  el.style.display = "block";
 }
 
-async function checkSession() {
+async function initAuth() {
+  await loadTurnosSelect();
   try {
-    const res = await fetch("/api/employee/session");
+    const res = await fetch("/api/funcionario/session");
     const data = await res.json();
-    if (data.ok) {
-      showPosPanel(data.shift, data.items);
+    if (data.authenticated) {
+      showApp(data.turno_label);
     } else {
-      showLoginPanel();
+      showLoginGate();
     }
   } catch (error) {
     console.error(error);
-    showLoginPanel();
+    showLoginGate();
   }
 }
 
-function showLoginPanel() {
-  document.getElementById("pos-login").style.display = "block";
-  document.getElementById("pos-panel").style.display = "none";
+function showLoginGate() {
+  document.getElementById("func-login-gate").style.display = "flex";
+  document.getElementById("func-app").style.display = "none";
+  document.getElementById("func-login-password").focus();
 }
 
-function showPosPanel(shift, items) {
-  document.getElementById("pos-login").style.display = "none";
-  document.getElementById("pos-panel").style.display = "block";
-  document.getElementById("pos-shift-name").textContent = shift.name || "Turno";
-  posItems = items || [];
-  cart = {};
-  renderPosGrid();
-  updateCartTotal();
+function showApp(turnoLabel) {
+  document.getElementById("func-login-gate").style.display = "none";
+  document.getElementById("func-app").style.display = "";
+  document.getElementById("func-turno-label").textContent = turnoLabel || "";
+  loadCardapio();
 }
 
-function categoryLabel(category) {
-  return { pizza: "Pizzas", salgado: "Salgados", bebida: "Bebidas" }[category] || category;
+async function attemptLogin() {
+  const turno_id = document.getElementById("func-turno-select").value;
+  const password = document.getElementById("func-login-password").value;
+  const errorEl = document.getElementById("func-login-error");
+  errorEl.textContent = "";
+
+  try {
+    const res = await fetch("/api/funcionario/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ turno_id, password }),
+    });
+    const result = await res.json();
+    if (!res.ok || !result.ok) {
+      errorEl.textContent = result.error || "Senha incorreta.";
+      return;
+    }
+    document.getElementById("func-login-password").value = "";
+    showApp(result.turno_label);
+  } catch (error) {
+    console.error(error);
+    errorEl.textContent = "Erro ao entrar. Tente novamente.";
+  }
 }
 
-function renderPosGrid() {
-  const grid = document.getElementById("pos-grid");
-  const categories = ["pizza", "salgado", "bebida"];
-  grid.innerHTML = categories.map((category) => {
-    const items = posItems.filter((item) => item.category === category);
-    if (!items.length) return "";
-    const cards = items.map((item) => `
-      <div class="pos-card">
-        <div class="pos-card-name">${escapeHTML(item.name)}</div>
-        <div class="pos-card-price">${formatPrice(item.price)}</div>
-        <div class="pos-stepper">
-          <button type="button" class="pos-step-btn" data-action="minus" data-id="${item.id}">−</button>
-          <span class="pos-qty" id="pos-qty-${item.id}">0</span>
-          <button type="button" class="pos-step-btn" data-action="plus" data-id="${item.id}">+</button>
+document.getElementById("func-login-btn").addEventListener("click", attemptLogin);
+document.getElementById("func-login-password").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") attemptLogin();
+});
+
+document.getElementById("func-logout-btn").addEventListener("click", async () => {
+  try {
+    await fetch("/api/funcionario/logout", { method: "POST" });
+  } catch (error) {
+    console.error(error);
+  }
+  location.reload();
+});
+
+// ---------- cardápio e registro de vendas ----------
+
+const SECTION_MAP = {
+  pizza: "func-pizzas-list",
+  salgado: "func-salgados-list",
+  bebida: "func-bebidas-list",
+};
+
+async function loadCardapio() {
+  try {
+    const res = await fetch("/api/funcionario/cardapio");
+    if (res.status === 401) { showLoginGate(); return; }
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    renderCardapio(data.items);
+  } catch (error) {
+    console.error(error);
+    showToast("Erro ao carregar o cardápio");
+  }
+}
+
+function renderCardapio(items) {
+  ["pizza", "salgado", "bebida"].forEach((category) => {
+    const container = document.getElementById(SECTION_MAP[category]);
+    const list = items.filter((i) => i.category === category);
+
+    if (!list.length) {
+      container.innerHTML = "<p class=\"panel-help\">Nenhum item nesta categoria.</p>";
+      return;
+    }
+
+    container.innerHTML = list.map((item) => {
+      const stockInfo = item.tracked
+        ? `<span class="func-stock ${item.quantity <= 0 ? "func-stock-zero" : ""}">restam ${item.quantity}</span>`
+        : "";
+
+      const deliverySelect = category === "pizza"
+        ? `
+          <select class="func-delivery-select">
+            <option value="retirada">Retirada</option>
+            <option value="mesa">Mesa</option>
+            <option value="entrega">Entrega</option>
+          </select>
+        `
+        : "";
+
+      const disabled = item.tracked && item.quantity <= 0 ? "disabled" : "";
+
+      return `
+        <div class="func-item-row" data-item-id="${item.id}" data-tracked="${item.tracked}">
+          <div class="func-item-info">
+            <span class="func-item-name">${escapeHTML(item.name)}</span>
+            <span class="func-item-price">${fmtMoney(item.price)}</span>
+            ${stockInfo}
+          </div>
+          <div class="func-item-controls">
+            ${deliverySelect}
+            <input type="number" class="func-qty-input" min="1" step="1" value="1">
+            <button type="button" class="save-btn func-register-btn" ${disabled}>Registrar</button>
+          </div>
         </div>
-      </div>`).join("");
-    return `<div class="pos-category">
-      <h3 class="pos-category-title">${categoryLabel(category)}</h3>
-      <div class="pos-category-grid">${cards}</div>
-    </div>`;
-  }).join("");
+      `;
+    }).join("");
+  });
 
-  grid.querySelectorAll(".pos-step-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = Number(btn.dataset.id);
-      const current = cart[id] || 0;
-      const next = btn.dataset.action === "plus" ? current + 1 : Math.max(0, current - 1);
-      cart[id] = next;
-      document.getElementById(`pos-qty-${id}`).textContent = String(next);
-      updateCartTotal();
-    });
+  document.querySelectorAll(".func-register-btn").forEach((btn) => {
+    btn.addEventListener("click", () => registerSale(btn));
   });
 }
 
-function updateCartTotal() {
-  let total = 0;
-  Object.entries(cart).forEach(([id, qty]) => {
-    if (qty <= 0) return;
-    const item = posItems.find((i) => Number(i.id) === Number(id));
-    if (item) total += Number(item.price || 0) * qty;
-  });
-  document.getElementById("pos-cart-total").textContent = formatPrice(total);
+async function registerSale(btn) {
+  const row = btn.closest(".func-item-row");
+  const item_id = row.dataset.itemId;
+  const quantity = Number(row.querySelector(".func-qty-input").value) || 1;
+  const deliverySelect = row.querySelector(".func-delivery-select");
+  const delivery_type = deliverySelect ? deliverySelect.value : undefined;
+
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/funcionario/venda", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id, quantity, delivery_type }),
+    });
+    const result = await res.json();
+    if (res.status === 401) { showLoginGate(); return; }
+    if (!res.ok || !result.ok) throw new Error(result.error);
+    showToast("Venda registrada");
+    loadCardapio();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Erro ao registrar a venda");
+    btn.disabled = false;
+  }
 }
 
-document.getElementById("pos-login-btn").addEventListener("click", async () => {
-  const password = document.getElementById("pos-password").value.trim();
-  if (!password) {
-    showLoginError("Digite a senha do turno.");
-    return;
-  }
-  try {
-    const res = await fetch("/api/employee/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) {
-      showLoginError(data.error || "Senha incorreta.");
-      return;
-    }
-    showLoginError(null);
-    document.getElementById("pos-password").value = "";
-    await checkSession();
-  } catch (error) {
-    console.error(error);
-    showLoginError("Não foi possível entrar. Tente novamente.");
-  }
-});
-
-document.getElementById("pos-password").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") document.getElementById("pos-login-btn").click();
-});
-
-document.getElementById("pos-logout-btn").addEventListener("click", async () => {
-  try {
-    await fetch("/api/employee/logout", { method: "POST" });
-  } catch (error) {
-    console.error(error);
-  }
-  cart = {};
-  showLoginPanel();
-});
-
-document.getElementById("pos-register-btn").addEventListener("click", async () => {
-  const items = Object.entries(cart)
-    .filter(([, qty]) => qty > 0)
-    .map(([item_id, qty]) => ({ item_id: Number(item_id), qty }));
-
-  if (!items.length) {
-    showToast("Adicione pelo menos um produto");
-    return;
-  }
-
-  try {
-    const res = await fetch("/api/employee/sale", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) {
-      showToast(data.error || "Erro ao registrar a venda");
-      if (res.status === 401) showLoginPanel();
-      return;
-    }
-    cart = {};
-    renderPosGrid();
-    updateCartTotal();
-    showToast(`Venda registrada: ${formatPrice(data.sale.total)}`);
-  } catch (error) {
-    console.error(error);
-    showToast("Erro ao registrar a venda");
-  }
-});
-
-checkSession();
+initAuth();

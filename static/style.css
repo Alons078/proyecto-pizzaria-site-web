@@ -648,6 +648,166 @@ footer.foot {
   .promo-slot { grid-template-columns: 1fr; }
 }
 
+/* ---------- login (admin e funcionários) ---------- */
+.login-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(ellipse at top, var(--paper-warm), var(--paper));
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--paper-warm);
+  border: 1px solid var(--gold-line);
+  border-radius: 18px;
+  padding: 32px 28px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  text-align: center;
+}
+.login-card h1 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  margin: 0 0 6px;
+  color: var(--ember);
+}
+.login-card p {
+  color: var(--ink-soft);
+  font-size: 14px;
+  margin: 0 0 20px;
+}
+.login-card .field { text-align: left; margin-bottom: 14px; }
+.login-card select { width: 100%; }
+.login-error {
+  color: var(--tomato);
+  font-size: 13px;
+  min-height: 18px;
+  margin: 0 0 10px;
+}
+.login-card .save-btn { width: 100%; }
+
+.admin-nav-group { display: flex; align-items: center; gap: 14px; }
+.admin-logout-btn {
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  padding: 0;
+}
+
+.panel-help { color: var(--ink-soft); font-size: 13px; margin: -8px 0 16px; }
+
+.turno-card-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+/* ---------- registro de vendas ---------- */
+.vendas-total-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px;
+  border: 1px solid var(--gold-line);
+  border-radius: 14px;
+  background: var(--paper);
+  margin: 16px 0 24px;
+}
+.vendas-total-label { color: var(--ink-soft); font-size: 13px; }
+.vendas-total-value { font-family: var(--font-display); font-size: 32px; color: var(--ember); }
+.vendas-total-sub { color: var(--ink-soft); font-size: 13px; }
+
+.vendas-subtitle {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--ink);
+  margin: 20px 0 8px;
+}
+
+.vendas-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.vendas-row:last-child { border-bottom: none; }
+
+.estoque-row {
+  display: grid;
+  grid-template-columns: 1fr auto 90px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.estoque-row:last-child { border-bottom: none; }
+.estoque-name small { color: var(--ink-soft); }
+.estoque-tracked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.estoque-qty-input {
+  width: 90px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+.estoque-qty-input:disabled { opacity: 0.4; }
+
+@media (max-width: 600px) {
+  .estoque-row { grid-template-columns: 1fr; }
+}
+
+/* ---------- página de funcionários ---------- */
+.func-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.func-item-row:last-child { border-bottom: none; }
+
+.func-item-info { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+.func-item-name { font-family: var(--font-display); font-size: 16px; }
+.func-item-price { color: var(--ink-soft); font-size: 13px; }
+.func-stock { font-family: var(--font-mono); font-size: 12px; color: var(--ember); width: fit-content; }
+.func-stock-zero { color: var(--tomato); }
+
+.func-item-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.func-delivery-select {
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+.func-qty-input {
+  width: 64px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.func-register-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* ---------- editor de recorte de imagens ---------- */
 .crop-modal {
   position: fixed;
@@ -790,8 +950,6 @@ footer.foot {
   .reveal { opacity: 1; transform: none; transition: none; }
   .card:hover, .promo-card:hover { transform: none; }
 }
-
-
 
 /* ============================================================
    ADICIONE ESTE BLOCO AO FINAL DE static/style.css

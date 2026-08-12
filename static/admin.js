@@ -486,4 +486,215 @@ function showToast(message = "Alterações salvas") {
 }
 
 setupCropper();
-loadData();
+initAdminAuth();
+
+// ---------- autenticação do administrador ----------
+
+async function initAdminAuth() {
+  try {
+    const res = await fetch("/api/admin/session");
+    const data = await res.json();
+    if (data.authenticated) {
+      showAdminApp();
+    } else {
+      showLoginGate();
+    }
+  } catch (error) {
+    console.error(error);
+    showLoginGate();
+  }
+}
+
+function showLoginGate() {
+  document.getElementById("admin-login-gate").style.display = "flex";
+  document.getElementById("admin-app").style.display = "none";
+  document.getElementById("admin-login-password").focus();
+}
+
+function showAdminApp() {
+  document.getElementById("admin-login-gate").style.display = "none";
+  document.getElementById("admin-app").style.display = "";
+  loadData();
+  loadTurnos();
+}
+
+async function attemptAdminLogin() {
+  const password = document.getElementById("admin-login-password").value;
+  const errorEl = document.getElementById("admin-login-error");
+  errorEl.textContent = "";
+  try {
+    const res = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const result = await res.json();
+    if (!res.ok || !result.ok) {
+      errorEl.textContent = result.error || "Senha incorreta.";
+      return;
+    }
+    document.getElementById("admin-login-password").value = "";
+    showAdminApp();
+  } catch (error) {
+    console.error(error);
+    errorEl.textContent = "Erro ao entrar. Tente novamente.";
+  }
+}
+
+document.getElementById("admin-login-btn").addEventListener("click", attemptAdminLogin);
+document.getElementById("admin-login-password").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") attemptAdminLogin();
+});
+
+document.getElementById("admin-logout-btn").addEventListener("click", async () => {
+  try {
+    await fetch("/api/admin/logout", { method: "POST" });
+  } catch (error) {
+    console.error(error);
+  }
+  location.reload();
+});
+
+document.getElementById("change-pass-btn").addEventListener("click", async () => {
+  const current_password = document.getElementById("change-pass-current").value;
+  const new_password = document.getElementById("change-pass-new").value;
+  try {
+    const res = await fetch("/api/admin/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password, new_password }),
+    });
+    const result = await res.json();
+    if (!res.ok || !result.ok) throw new Error(result.error);
+    document.getElementById("change-pass-current").value = "";
+    document.getElementById("change-pass-new").value = "";
+    showToast("Senha alterada");
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Erro ao alterar a senha");
+  }
+});
+
+// ---------- turnos dos funcionários ----------
+
+let currentTurnos = [];
+
+async function loadTurnos() {
+  try {
+    const res = await fetch("/api/admin/turnos");
+    const data = await res.json();
+    currentTurnos = data.turnos || [];
+    renderTurnos();
+  } catch (error) {
+    console.error(error);
+    showToast("Erro ao carregar os turnos");
+  }
+}
+
+function renderTurnos() {
+  const list = document.getElementById("turnos-list");
+  list.innerHTML = "";
+
+  currentTurnos.forEach((turno) => {
+    const card = document.createElement("div");
+    card.className = "promo-admin-card turno-card";
+    card.dataset.turnoId = turno.id;
+    card.innerHTML = `
+      <div class="row">
+        <div class="field">
+          <label>Nome do turno</label>
+          <input type="text" class="turno-label" value="${escapeHTML(turno.label)}">
+        </div>
+        <div class="field">
+          <label>Início</label>
+          <input type="text" class="turno-inicio" value="${escapeHTML(turno.hora_inicio)}" placeholder="18:00">
+        </div>
+        <div class="field">
+          <label>Fim</label>
+          <input type="text" class="turno-fim" value="${escapeHTML(turno.hora_fim)}" placeholder="20:00">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Nova senha (deixe em branco para manter a atual)</label>
+          <input type="password" class="turno-password" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="turno-card-actions">
+        <button type="button" class="crop-secondary turno-save-btn">Salvar turno</button>
+        <button type="button" class="delete-item-btn turno-delete-btn">Excluir turno</button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  list.querySelectorAll(".turno-save-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const card = btn.closest(".turno-card");
+      const id = card.dataset.turnoId;
+      const label = card.querySelector(".turno-label").value.trim();
+      const hora_inicio = card.querySelector(".turno-inicio").value.trim();
+      const hora_fim = card.querySelector(".turno-fim").value.trim();
+      const password = card.querySelector(".turno-password").value.trim();
+
+      try {
+        const res = await fetch(`/api/admin/turnos/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, hora_inicio, hora_fim, password }),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.ok) throw new Error(result.error);
+        showToast("Turno salvo");
+        loadTurnos();
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Erro ao salvar o turno");
+      }
+    });
+  });
+
+  list.querySelectorAll(".turno-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const card = btn.closest(".turno-card");
+      const id = card.dataset.turnoId;
+      if (!confirm("Excluir este turno? Os funcionários não poderão mais usar a senha dele.")) return;
+      try {
+        const res = await fetch(`/api/admin/turnos/${id}`, { method: "DELETE" });
+        const result = await res.json();
+        if (!res.ok || !result.ok) throw new Error(result.error);
+        loadTurnos();
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Erro ao excluir o turno");
+      }
+    });
+  });
+}
+
+document.getElementById("add-turno-btn").addEventListener("click", async () => {
+  const label = prompt("Nome do turno (ex.: Turno da tarde):", "Novo turno");
+  if (!label) return;
+  const hora_inicio = prompt("Horário de início (ex.: 18:00):", "18:00") || "18:00";
+  const hora_fim = prompt("Horário de fim (ex.: 20:00):", "20:00") || "20:00";
+  const password = prompt("Senha deste turno (mínimo 4 caracteres):");
+  if (!password || password.trim().length < 4) {
+    showToast("A senha precisa ter pelo menos 4 caracteres");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/admin/turnos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, hora_inicio, hora_fim, password: password.trim() }),
+    });
+    const result = await res.json();
+    if (!res.ok || !result.ok) throw new Error(result.error);
+    showToast("Turno adicionado");
+    loadTurnos();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Erro ao adicionar o turno");
+  }
+});
