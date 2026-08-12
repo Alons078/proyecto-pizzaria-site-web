@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registro de vendas · Rey Pizzaria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="login-gate" id="admin-login-gate">
+  <div class="login-card">
+    <h1>Registro de vendas</h1>
+    <p>Digite a senha do administrador para continuar.</p>
+    <div class="field">
+      <label>Senha</label>
+      <input type="password" id="admin-login-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <p class="login-error" id="admin-login-error"></p>
+    <button type="button" class="save-btn" id="admin-login-btn">Entrar</button>
+  </div>
+</div>
+
+<div id="admin-app" style="display:none;">
+
+<header class="top">
+  <div class="brand">
+    <span>Registro de vendas</span>
+  </div>
+  <div class="admin-nav-group">
+    <a class="admin-nav" href="/admin">← painel do administrador</a>
+    <button type="button" class="admin-nav admin-logout-btn" id="admin-logout-btn">sair</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel">
+    <div class="panel-heading-row">
+      <h2>Resumo de vendas</h2>
+      <div class="status-toggle" id="period-toggle">
+        <button type="button" data-period="today" class="active">Hoje</button>
+        <button type="button" data-period="week">Esta semana</button>
+      </div>
+    </div>
+
+    <div class="vendas-totais" id="vendas-totais"></div>
+
+    <h3 class="vendas-subtitle">Vendas por turno</h3>
+    <div id="vendas-por-turno"></div>
+
+    <h3 class="vendas-subtitle">Pizzas por tipo de entrega</h3>
+    <div id="vendas-pizzas-entrega"></div>
+
+    <h3 class="vendas-subtitle">Vendas por categoria</h3>
+    <div id="vendas-por-categoria"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Estoque</h2>
+    <p class="panel-help">Ative o controle de estoque para os itens que precisam ser descontados automaticamente a cada venda (ex.: bebidas). Deixe desativado para itens sem controle, como pizzas feitas na hora.</p>
+    <div id="estoque-list"></div>
+    <div class="save-bar">
+      <button class="save-btn" id="estoque-save-btn">Salvar estoque</button>
+    </div>
+  </section>
+
+</main>
+
+</div>
+
+<div class="toast" id="toast">Alterações salvas</div>
+
+<script src="/static/admin_vendas.js"></script>
+</body>
+</html>

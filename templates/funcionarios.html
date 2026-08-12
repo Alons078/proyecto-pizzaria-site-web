@@ -10,39 +10,54 @@
 </head>
 <body>
 
+<div class="login-gate" id="func-login-gate">
+  <div class="login-card">
+    <h1>Área dos funcionários</h1>
+    <p>Escolha o turno e digite a senha para registrar vendas.</p>
+    <div class="field">
+      <label>Turno</label>
+      <select id="func-turno-select"></select>
+    </div>
+    <div class="field">
+      <label>Senha do turno</label>
+      <input type="password" id="func-login-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <p class="login-error" id="func-login-error"></p>
+    <button type="button" class="save-btn" id="func-login-btn">Entrar</button>
+  </div>
+</div>
+
+<div id="func-app" style="display:none;">
+
 <header class="top">
-  <div class="brand"><span>Rey Pizzaria · Funcionários</span></div>
-  <a class="admin-nav" href="/">ver como cliente →</a>
+  <div class="brand">
+    <span>Registrar venda — <span id="func-turno-label"></span></span>
+  </div>
+  <div class="admin-nav-group">
+    <button type="button" class="admin-nav admin-logout-btn" id="func-logout-btn">sair</button>
+  </div>
 </header>
 
 <main class="wrap">
 
-  <section class="panel" id="pos-login">
-    <h2>Entrar no turno</h2>
-    <p class="login-sub">Digite a senha do seu turno para registrar as vendas.</p>
-    <p class="login-error" id="pos-login-error" style="display:none;"></p>
-    <div class="field">
-      <label>Senha do turno</label>
-      <input type="password" id="pos-password" autocomplete="off">
-    </div>
-    <button type="button" class="save-btn" id="pos-login-btn">Entrar</button>
+  <section class="panel" id="func-pizzas-section">
+    <h2>Pizzas</h2>
+    <div id="func-pizzas-list"></div>
   </section>
 
-  <section class="panel" id="pos-panel" style="display:none;">
-    <div class="panel-heading-row">
-      <h2 id="pos-shift-name">Turno</h2>
-      <button type="button" class="add-item-btn" id="pos-logout-btn">Encerrar turno</button>
-    </div>
-    <p class="login-sub">Toque em + para adicionar produtos à venda atual e depois registre.</p>
-    <div id="pos-grid" class="pos-grid"></div>
+  <section class="panel" id="func-salgados-section">
+    <h2>Salgados</h2>
+    <div id="func-salgados-list"></div>
+  </section>
 
-    <div class="pos-cart-bar">
-      <div class="pos-cart-total">Total da venda: <strong id="pos-cart-total">R$ 0,00</strong></div>
-      <button type="button" class="save-btn" id="pos-register-btn">Registrar venda</button>
-    </div>
+  <section class="panel" id="func-bebidas-section">
+    <h2>Bebidas</h2>
+    <div id="func-bebidas-list"></div>
   </section>
 
 </main>
+
+</div>
 
 <div class="toast" id="toast">Venda registrada</div>
 

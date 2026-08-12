@@ -10,12 +10,31 @@
 </head>
 <body>
 
+<div class="login-gate" id="admin-login-gate">
+  <div class="login-card">
+    <h1>Painel do administrador</h1>
+    <p>Digite a senha para continuar.</p>
+    <div class="field">
+      <label>Senha</label>
+      <input type="password" id="admin-login-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <p class="login-error" id="admin-login-error"></p>
+    <button type="button" class="save-btn" id="admin-login-btn">Entrar</button>
+  </div>
+</div>
+
+<div id="admin-app" style="display:none;">
+
 <header class="top">
   <div class="brand">
     <img class="brand-logo" id="brand-logo" src="" alt="Rey Pizzaria" style="display:none;">
     <span>Painel do administrador</span>
   </div>
-  <a class="admin-nav" href="/">ver como cliente →</a>
+  <div class="admin-nav-group">
+    <a class="admin-nav" href="/admin/vendas">registro de vendas →</a>
+    <a class="admin-nav" href="/">ver como cliente →</a>
+    <button type="button" class="admin-nav admin-logout-btn" id="admin-logout-btn">sair</button>
+  </div>
 </header>
 
 <main class="wrap">
@@ -92,7 +111,29 @@
     <button class="save-btn" id="save-btn">Salvar alterações</button>
   </div>
 
+  <section class="panel">
+    <div class="panel-heading-row"><h2>Turnos dos funcionários</h2><button type="button" class="add-item-btn" id="add-turno-btn">+ Adicionar turno</button></div>
+    <p class="panel-help">Cada turno tem sua própria senha. Só quem estiver com a senha do turno atual consegue registrar vendas na página de funcionários.</p>
+    <div id="turnos-list"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Segurança</h2>
+    <div class="field">
+      <label>Senha atual</label>
+      <input type="password" id="change-pass-current" autocomplete="current-password">
+    </div>
+    <div class="field">
+      <label>Nova senha do administrador</label>
+      <input type="password" id="change-pass-new" autocomplete="new-password">
+    </div>
+    <button type="button" class="crop-secondary" id="change-pass-btn">Alterar senha</button>
+  </section>
+
 </main>
+
+</div>
+
 
 <div class="toast" id="toast">Alterações salvas</div>
 
