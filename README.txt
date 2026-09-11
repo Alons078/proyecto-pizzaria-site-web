@@ -22,5 +22,9 @@ O objetivo é que a foto que aparece no site já tenha o mesmo enquadramento do 
 Para executar:
 python app.py
 
-Cliente: http://127.0.0.1:5000/
-Admin:   http://127.0.0.1:5000/admin
+Cliente:      http://127.0.0.1:5000/
+Admin:        http://127.0.0.1:5000/admin          (pede senha)
+Funcionários: http://127.0.0.1:5000/funcionarios    (pede a senha do turno)
+
+Veja o arquivo LEEME.txt para instruções completas, incluindo as
+variáveis de ambiente necessárias para publicar no Render.

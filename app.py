@@ -1,29 +1,32 @@
 """
 Servidor Flask da Rey Pizzaria.
 
-/              -> vista do cliente
-/admin         -> painel do administrador (protegido por senha)
-/admin/vendas  -> registro de vendas e estatísticas (protegido por senha)
-/funcionarios  -> página dos funcionários (protegida por senha do turno)
+/              -> vista do cliente (pública)
+/admin         -> painel do administrador (requer senha)
+/funcionarios  -> registro de vendas por turno (requer senha do turno)
 
-Os dados do cardápio são armazenados em data.json (público).
-Senhas, turnos, vendas e estoque são armazenados em pizzaria.db (SQLite, privado).
+Os dados do cardápio, promoções, turnos e vendas são armazenados em data.json.
 As imagens enviadas pelo administrador são armazenadas em:
 static/uploads/
+
+Variáveis de ambiente usadas em produção (configure-as no Render):
+- ADMIN_PASSWORD  -> senha do painel /admin (padrão inseguro: "admin123")
+- SECRET_KEY      -> chave para assinar os cookies de sessão
+- PORT            -> porta em que o servidor escuta (o Render define sozinho)
+- FLASK_DEBUG     -> "1" para ligar o modo debug (deixe desligado em produção)
 """
 
-from functools import wraps
-from flask import Flask, jsonify, request, render_template, session
+from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 from werkzeug.utils import secure_filename
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import wraps
 import json
 import os
 import uuid
-
-import db
+import hmac
+import secrets
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "troque-esta-chave-em-producao-" + uuid.uuid4().hex)
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(BASE_PATH, "data.json")
@@ -31,16 +34,31 @@ UPLOAD_FOLDER = os.path.join(BASE_PATH, "static", "uploads")
 
 # Limite de 8 MB por arquivo enviado.
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(16))
+
+if not os.environ.get("ADMIN_PASSWORD"):
+    print("AVISO: a variável de ambiente ADMIN_PASSWORD não foi definida — "
+          "usando a senha padrão 'admin123'. Defina ADMIN_PASSWORD no Render antes de divulgar o site.")
+if not os.environ.get("SECRET_KEY"):
+    print("AVISO: a variável de ambiente SECRET_KEY não foi definida — "
+          "as sessões (login) serão invalidadas sempre que o servidor reiniciar.")
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-db.init_db()
 
 
 def load_data():
     with open(DATA_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    data.setdefault("promotions", [])
+    data.setdefault("shifts", [])
+    data.setdefault("sales", [])
+    return data
 
 
 def save_data(data):
@@ -64,20 +82,22 @@ def is_open_now(store):
     return store["hours"]["open"] <= now <= store["hours"]["close"]
 
 
-def admin_required(view):
+def require_admin(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not session.get("is_admin"):
-            return jsonify({"ok": False, "error": "Não autenticado."}), 401
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "Sessão de administrador expirada. Entre novamente."}), 401
+            return redirect(url_for("admin_login"))
         return view(*args, **kwargs)
     return wrapped
 
 
-def funcionario_required(view):
+def require_employee(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if not session.get("func_turno_id"):
-            return jsonify({"ok": False, "error": "Não autenticado."}), 401
+        if not session.get("shift_id"):
+            return jsonify({"ok": False, "error": "Sessão do turno expirada. Entre novamente com a senha do turno."}), 401
         return view(*args, **kwargs)
     return wrapped
 
@@ -89,74 +109,77 @@ def cliente():
     return render_template("cliente.html")
 
 
+@app.route("/admin/login", methods=["GET"])
+def admin_login():
+    if session.get("is_admin"):
+        return redirect(url_for("admin"))
+    return render_template("admin_login.html", error=None)
+
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login_submit():
+    password = (request.form.get("password") or "").strip()
+    if password and hmac.compare_digest(password, ADMIN_PASSWORD):
+        session["is_admin"] = True
+        return redirect(url_for("admin"))
+    return render_template("admin_login.html", error="Senha incorreta."), 401
+
+
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    session.pop("is_admin", None)
+    return redirect(url_for("admin_login"))
+
+
 @app.route("/admin")
+@require_admin
 def admin():
     return render_template("admin.html")
 
 
-@app.route("/admin/vendas")
-def admin_vendas_page():
-    return render_template("admin_vendas.html")
-
-
 @app.route("/funcionarios")
-def funcionarios_page():
+def funcionarios():
     return render_template("funcionarios.html")
 
 
-# ---------- autenticação do administrador ----------
-
-@app.route("/api/admin/session", methods=["GET"])
-def admin_session():
-    return jsonify({"authenticated": bool(session.get("is_admin"))})
-
-
-@app.route("/api/admin/login", methods=["POST"])
-def admin_login():
-    body = request.get_json(silent=True) or {}
-    password = body.get("password", "")
-    if db.check_admin_password(password):
-        session["is_admin"] = True
-        return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "Senha incorreta."}), 401
-
-
-@app.route("/api/admin/logout", methods=["POST"])
-def admin_logout():
-    session.pop("is_admin", None)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/admin/change-password", methods=["POST"])
-@admin_required
-def admin_change_password():
-    body = request.get_json(silent=True) or {}
-    current = body.get("current_password", "")
-    new_password = (body.get("new_password") or "").strip()
-
-    if not db.check_admin_password(current):
-        return jsonify({"ok": False, "error": "Senha atual incorreta."}), 400
-    if len(new_password) < 4:
-        return jsonify({"ok": False, "error": "A nova senha precisa ter pelo menos 4 caracteres."}), 400
-
-    db.set_admin_password(new_password)
-    return jsonify({"ok": True})
-
-
-# ---------- API dos dados do cardápio (pública para o cliente) ----------
+# ---------- API pública (vista do cliente) ----------
 
 @app.route("/api/data", methods=["GET"])
 def get_data():
+    """Dados públicos para a vista do cliente. Não inclui turnos, senhas nem vendas."""
     data = load_data()
     data["store"]["is_open"] = is_open_now(data["store"])
-    return jsonify(data)
+    public = {
+        "store": data["store"],
+        "today_post": data["today_post"],
+        "items": data["items"],
+        "promotions": data["promotions"],
+    }
+    return jsonify(public)
+
+
+# ---------- API do administrador ----------
+
+@app.route("/api/admin/data", methods=["GET"])
+@require_admin
+def get_admin_data():
+    data = load_data()
+    data["store"]["is_open"] = is_open_now(data["store"])
+    admin_view = {
+        "store": data["store"],
+        "today_post": data["today_post"],
+        "items": data["items"],
+        "promotions": data["promotions"],
+        "shifts": data["shifts"],
+    }
+    return jsonify(admin_view)
 
 
 @app.route("/api/data", methods=["POST"])
-@admin_required
+@require_admin
 def update_data():
     """Recebe o objeto completo enviado pelo administrador e salva no data.json."""
-    new_data = request.get_json()
+    new_data = request.get_json(silent=True)
 
     if not isinstance(new_data, dict):
         return jsonify({"ok": False, "error": "Dados inválidos."}), 400
@@ -167,6 +190,9 @@ def update_data():
     if "promotions" not in new_data or not isinstance(new_data["promotions"], list):
         new_data["promotions"] = []
 
+    if "shifts" not in new_data or not isinstance(new_data["shifts"], list):
+        new_data["shifts"] = []
+
     for item in new_data["items"]:
         item.setdefault("promo_extra", 0)
 
@@ -176,14 +202,168 @@ def update_data():
         if not isinstance(promo.get("slots", []), list) or not promo.get("slots"):
             return jsonify({"ok": False, "error": f'A promoção "{promo.get("name", "")}" precisa ter pelo menos uma escolha.'}), 400
 
+    seen_passwords = set()
+    for shift in new_data["shifts"]:
+        if not isinstance(shift, dict) or not shift.get("name"):
+            return jsonify({"ok": False, "error": "Existe um turno sem nome."}), 400
+        password = str(shift.get("password") or "").strip()
+        if not password:
+            return jsonify({"ok": False, "error": f'O turno "{shift.get("name")}" precisa ter uma senha.'}), 400
+        if password in seen_passwords:
+            return jsonify({"ok": False, "error": "Dois turnos não podem usar a mesma senha."}), 400
+        seen_passwords.add(password)
+        shift["password"] = password
+
+    # A lista de vendas é gerenciada só pelas rotas de funcionários,
+    # nunca é sobrescrita a partir do painel do admin.
+    existing = load_data()
+    new_data["sales"] = existing["sales"]
+
     save_data(new_data)
     return jsonify({"ok": True})
 
 
-# ---------- upload de imagens ----------
+@app.route("/api/admin/sales", methods=["GET"])
+@require_admin
+def admin_sales():
+    data = load_data()
+    sales = data["sales"]
+
+    total_geral = round(sum(float(s.get("total", 0)) for s in sales), 2)
+
+    by_shift = {}
+    for s in sales:
+        key = s.get("shift_name") or "Turno removido"
+        by_shift[key] = round(by_shift.get(key, 0) + float(s.get("total", 0)), 2)
+
+    week_ago = datetime.now() - timedelta(days=7)
+    total_semana = 0.0
+    for s in sales:
+        try:
+            ts = datetime.fromisoformat(s.get("timestamp", ""))
+        except ValueError:
+            continue
+        if ts >= week_ago:
+            total_semana += float(s.get("total", 0))
+    total_semana = round(total_semana, 2)
+
+    recent = sorted(sales, key=lambda s: s.get("timestamp", ""), reverse=True)[:80]
+
+    return jsonify({
+        "ok": True,
+        "shifts": data["shifts"],
+        "sales": recent,
+        "stats": {
+            "total_geral": total_geral,
+            "total_semana": total_semana,
+            "by_shift": by_shift,
+        },
+    })
+
+
+# ---------- API dos funcionários ----------
+
+@app.route("/api/employee/login", methods=["POST"])
+def employee_login():
+    body = request.get_json(silent=True) or {}
+    password = str(body.get("password") or "").strip()
+    if not password:
+        return jsonify({"ok": False, "error": "Digite a senha do turno."}), 400
+
+    data = load_data()
+    for shift in data["shifts"]:
+        shift_password = str(shift.get("password") or "")
+        if shift_password and hmac.compare_digest(shift_password, password):
+            session["shift_id"] = shift["id"]
+            session["shift_name"] = shift.get("name", "")
+            return jsonify({"ok": True, "shift": {"id": shift["id"], "name": shift.get("name", "")}})
+
+    return jsonify({"ok": False, "error": "Senha incorreta."}), 401
+
+
+@app.route("/api/employee/logout", methods=["POST"])
+def employee_logout():
+    session.pop("shift_id", None)
+    session.pop("shift_name", None)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/employee/session", methods=["GET"])
+def employee_session():
+    if not session.get("shift_id"):
+        return jsonify({"ok": False})
+    data = load_data()
+    return jsonify({
+        "ok": True,
+        "shift": {"id": session["shift_id"], "name": session.get("shift_name", "")},
+        "items": data["items"],
+    })
+
+
+@app.route("/api/employee/sale", methods=["POST"])
+@require_employee
+def register_sale():
+    body = request.get_json(silent=True) or {}
+    cart = body.get("items")
+    if not isinstance(cart, list) or not cart:
+        return jsonify({"ok": False, "error": "Adicione pelo menos um produto à venda."}), 400
+
+    data = load_data()
+    items_by_id = {}
+    for entry in data["items"]:
+        try:
+            items_by_id[int(entry["id"])] = entry
+        except (TypeError, ValueError, KeyError):
+            continue
+
+    sale_items = []
+    total = 0.0
+    for entry in cart:
+        try:
+            item_id = int(entry.get("item_id"))
+            qty = int(entry.get("qty"))
+        except (TypeError, ValueError, AttributeError):
+            return jsonify({"ok": False, "error": "Item de venda inválido."}), 400
+        if qty <= 0:
+            continue
+        item = items_by_id.get(item_id)
+        if not item:
+            return jsonify({"ok": False, "error": "Um dos produtos não foi encontrado no cardápio."}), 400
+        price = float(item.get("price") or 0)
+        subtotal = round(price * qty, 2)
+        sale_items.append({
+            "item_id": item_id,
+            "name": item.get("name", ""),
+            "qty": qty,
+            "price": price,
+            "subtotal": subtotal,
+        })
+        total += subtotal
+
+    if not sale_items:
+        return jsonify({"ok": False, "error": "Adicione pelo menos um produto à venda."}), 400
+
+    sales = data["sales"]
+    sale_ids = [int(s.get("id", 0)) for s in sales if str(s.get("id", "")).isdigit()]
+    next_id = max(sale_ids) + 1 if sale_ids else 1
+
+    sale = {
+        "id": next_id,
+        "shift_id": session.get("shift_id"),
+        "shift_name": session.get("shift_name", ""),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "items": sale_items,
+        "total": round(total, 2),
+    }
+    sales.append(sale)
+    save_data(data)
+    return jsonify({"ok": True, "sale": sale})
+
+
+# ---------- upload de imagens (somente admin) ----------
 
 @app.route("/api/upload-image", methods=["POST"])
-@admin_required
+@require_admin
 def upload_image():
     """Recebe uma imagem do computador e salva em static/uploads/."""
     if "image" not in request.files:
@@ -221,204 +401,7 @@ def file_too_large(error):
     }), 413
 
 
-# ---------- turnos (admin) ----------
-
-@app.route("/api/admin/turnos", methods=["GET"])
-@admin_required
-def list_turnos():
-    return jsonify({"ok": True, "turnos": db.list_turnos()})
-
-
-@app.route("/api/admin/turnos", methods=["POST"])
-@admin_required
-def create_turno():
-    body = request.get_json(silent=True) or {}
-    label = (body.get("label") or "").strip()
-    hora_inicio = (body.get("hora_inicio") or "").strip()
-    hora_fim = (body.get("hora_fim") or "").strip()
-    password = (body.get("password") or "").strip()
-
-    if not label or not hora_inicio or not hora_fim or not password:
-        return jsonify({"ok": False, "error": "Preencha turno, horários e senha."}), 400
-    if len(password) < 4:
-        return jsonify({"ok": False, "error": "A senha do turno precisa ter pelo menos 4 caracteres."}), 400
-
-    new_id = db.create_turno(label, hora_inicio, hora_fim, password)
-    return jsonify({"ok": True, "id": new_id})
-
-
-@app.route("/api/admin/turnos/<int:turno_id>", methods=["PUT"])
-@admin_required
-def update_turno(turno_id):
-    body = request.get_json(silent=True) or {}
-    label = (body.get("label") or "").strip()
-    hora_inicio = (body.get("hora_inicio") or "").strip()
-    hora_fim = (body.get("hora_fim") or "").strip()
-    password = (body.get("password") or "").strip() or None
-
-    if not label or not hora_inicio or not hora_fim:
-        return jsonify({"ok": False, "error": "Preencha turno e horários."}), 400
-    if password and len(password) < 4:
-        return jsonify({"ok": False, "error": "A senha do turno precisa ter pelo menos 4 caracteres."}), 400
-
-    db.update_turno(turno_id, label, hora_inicio, hora_fim, password)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/admin/turnos/<int:turno_id>", methods=["DELETE"])
-@admin_required
-def delete_turno(turno_id):
-    db.delete_turno(turno_id)
-    return jsonify({"ok": True})
-
-
-# ---------- estoque (admin) ----------
-
-@app.route("/api/admin/estoque", methods=["GET"])
-@admin_required
-def get_estoque():
-    data = load_data()
-    stock_map = db.get_stock_map()
-    items = []
-    for item in data["items"]:
-        item_id = int(item["id"])
-        info = stock_map.get(item_id, {"quantity": 0, "tracked": False})
-        items.append({
-            "id": item_id,
-            "name": item["name"],
-            "category": item["category"],
-            "tracked": info["tracked"],
-            "quantity": info["quantity"],
-        })
-    return jsonify({"ok": True, "items": items})
-
-
-@app.route("/api/admin/estoque", methods=["POST"])
-@admin_required
-def set_estoque():
-    body = request.get_json(silent=True) or {}
-    items = body.get("items", [])
-    if not isinstance(items, list):
-        return jsonify({"ok": False, "error": "Dados inválidos."}), 400
-
-    for entry in items:
-        item_id = int(entry.get("id"))
-        tracked = bool(entry.get("tracked"))
-        quantity = int(entry.get("quantity") or 0)
-        db.set_stock(item_id, quantity, tracked)
-
-    return jsonify({"ok": True})
-
-
-# ---------- relatório de vendas (admin) ----------
-
-@app.route("/api/admin/vendas/resumo", methods=["GET"])
-@admin_required
-def vendas_resumo():
-    period = request.args.get("period", "today")
-    if period not in ("today", "week"):
-        period = "today"
-    return jsonify({"ok": True, "resumo": db.sales_summary(period)})
-
-
-# ---------- funcionários ----------
-
-@app.route("/api/funcionario/turnos", methods=["GET"])
-def funcionario_list_turnos():
-    """Lista pública apenas com nome e horário dos turnos (sem senha) para o funcionário escolher."""
-    return jsonify({"ok": True, "turnos": db.list_turnos()})
-
-
-@app.route("/api/funcionario/session", methods=["GET"])
-def funcionario_session():
-    if session.get("func_turno_id"):
-        return jsonify({"authenticated": True, "turno_label": session.get("func_turno_label")})
-    return jsonify({"authenticated": False})
-
-
-@app.route("/api/funcionario/login", methods=["POST"])
-def funcionario_login():
-    body = request.get_json(silent=True) or {}
-    turno_id = body.get("turno_id")
-    password = body.get("password", "")
-
-    if not turno_id:
-        return jsonify({"ok": False, "error": "Selecione o turno."}), 400
-
-    ok, label = db.check_turno_password(int(turno_id), password)
-    if not ok:
-        return jsonify({"ok": False, "error": "Senha incorreta para este turno."}), 401
-
-    session["func_turno_id"] = int(turno_id)
-    session["func_turno_label"] = label
-    return jsonify({"ok": True, "turno_label": label})
-
-
-@app.route("/api/funcionario/logout", methods=["POST"])
-def funcionario_logout():
-    session.pop("func_turno_id", None)
-    session.pop("func_turno_label", None)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/funcionario/cardapio", methods=["GET"])
-@funcionario_required
-def funcionario_cardapio():
-    data = load_data()
-    stock_map = db.get_stock_map()
-    items = []
-    for item in data["items"]:
-        item_id = int(item["id"])
-        info = stock_map.get(item_id, {"quantity": 0, "tracked": False})
-        items.append({
-            "id": item_id,
-            "name": item["name"],
-            "category": item["category"],
-            "price": item["price"],
-            "tracked": info["tracked"],
-            "quantity": info["quantity"],
-        })
-    return jsonify({"ok": True, "items": items, "turno_label": session.get("func_turno_label")})
-
-
-@app.route("/api/funcionario/venda", methods=["POST"])
-@funcionario_required
-def funcionario_venda():
-    body = request.get_json(silent=True) or {}
-    item_id = body.get("item_id")
-    quantity = int(body.get("quantity") or 0)
-    delivery_type = body.get("delivery_type")
-
-    if not item_id or quantity <= 0:
-        return jsonify({"ok": False, "error": "Escolha um item e uma quantidade válida."}), 400
-
-    data = load_data()
-    item = next((i for i in data["items"] if int(i["id"]) == int(item_id)), None)
-    if not item:
-        return jsonify({"ok": False, "error": "Item não encontrado."}), 404
-
-    if item["category"] == "pizza" and delivery_type not in ("retirada", "mesa", "entrega"):
-        return jsonify({"ok": False, "error": "Escolha o tipo de entrega da pizza."}), 400
-    if item["category"] != "pizza":
-        delivery_type = None
-
-    ok, error = db.decrement_stock(int(item_id), quantity)
-    if not ok:
-        return jsonify({"ok": False, "error": error}), 400
-
-    db.register_sale(
-        turno_id=session.get("func_turno_id"),
-        turno_label=session.get("func_turno_label"),
-        item_id=int(item_id),
-        item_name=item["name"],
-        category=item["category"],
-        quantity=quantity,
-        unit_price=item["price"],
-        delivery_type=delivery_type,
-    )
-
-    return jsonify({"ok": True})
-
-
 if __name__ == "__main__":
-    app.run(debug=False, port=5000)
+    debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)
