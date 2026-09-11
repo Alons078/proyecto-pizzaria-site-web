@@ -16,7 +16,8 @@
       "image": "/static/uploads/bb01f51edbe14e1f9c9c8416d29f907e.jpg",
       "name": "Pizza Calabresa",
       "price": 35,
-      "promo_extra": 5
+      "promo_extra": 5,
+      "featured": true
     },
     {
       "category": "salgado",
@@ -106,6 +107,8 @@
   ],
   "store": {
     "address": "Rua das Laranjeiras, 123 - Rio de Janeiro",
+    "delivery_time": "30 - 45min",
+    "min_order": 20,
     "force_status": null,
     "hours": {
       "close": "20:00",

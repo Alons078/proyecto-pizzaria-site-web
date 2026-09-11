@@ -51,6 +51,9 @@ function render(data) {
     postImage.innerHTML = `<span>espaço para foto do dia</span>`;
   }
 
+  fillInfoBar(store);
+  fillPromoBanner(data.promotions || []);
+  fillMaisPedidos(items);
   fillPromotions(data.promotions || [], items);
   fillGrid("pizzas-grid", items.filter((i) => i.category === "pizza"));
   fillGrid("salgados-grid", items.filter((i) => i.category === "salgado"));
@@ -59,6 +62,75 @@ function render(data) {
   document.getElementById("foot-hours").textContent =
     `${store.hours.open} – ${store.hours.close}`;
   document.getElementById("foot-address").textContent = store.address;
+
+  setupScrollReveal();
+}
+
+function fillInfoBar(store) {
+  const deliveryEl = document.getElementById("info-delivery");
+  const minOrderEl = document.getElementById("info-min-order");
+  const addressEl = document.getElementById("info-address");
+  if (deliveryEl) {
+    deliveryEl.innerHTML = store.delivery_time
+      ? `Entrega <strong>${escapeHTML(store.delivery_time)}</strong>`
+      : "";
+  }
+  if (minOrderEl) {
+    minOrderEl.innerHTML = store.min_order
+      ? `Pedido mínimo <strong>${formatPrice(store.min_order)}</strong>`
+      : "";
+  }
+  if (addressEl) addressEl.textContent = store.address || "";
+}
+
+function fillPromoBanner(promotions) {
+  const banner = document.getElementById("promo-banner");
+  const textEl = document.getElementById("promo-banner-text");
+  if (!banner || !textEl) return;
+  const first = promotions[0];
+  if (!first) {
+    banner.style.display = "none";
+    return;
+  }
+  textEl.textContent = `${first.name} — ${formatPrice(first.price)}`;
+  banner.style.display = "block";
+}
+
+function fillMaisPedidos(items) {
+  const section = document.getElementById("mais-pedidos-section");
+  const row = document.getElementById("mais-pedidos-row");
+  if (!section || !row) return;
+
+  let featured = items.filter((i) => i.featured);
+  if (!featured.length) featured = items.slice(0, 4);
+  if (!featured.length) {
+    section.classList.add("is-empty");
+    return;
+  }
+
+  section.classList.remove("is-empty");
+  row.innerHTML = featured.map((item) => `
+    <div class="highlight-card">
+      <div class="thumb">
+        ${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>foto</span>`}
+      </div>
+      <div class="name">${escapeHTML(item.name)}</div>
+      <div class="price">${formatPrice(item.price)}</div>
+    </div>`).join("");
+}
+
+function setupScrollReveal() {
+  const els = document.querySelectorAll(".reveal");
+  if (!("IntersectionObserver" in window)) {
+    els.forEach((el) => el.classList.add("is-visible"));
+    return;
+  }
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) entry.target.classList.add("is-visible");
+    });
+  }, { threshold: 0.12 });
+  els.forEach((el) => obs.observe(el));
 }
 
 function fillGrid(elementId, list) {

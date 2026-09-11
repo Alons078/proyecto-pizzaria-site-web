@@ -29,6 +29,8 @@ function fillForm(data) {
   document.getElementById("hour-open").value = store.hours.open;
   document.getElementById("hour-close").value = store.hours.close;
   document.getElementById("store-address").value = store.address;
+  document.getElementById("store-delivery-time").value = store.delivery_time || "";
+  document.getElementById("store-min-order").value = store.min_order || "";
   setImagePreview("store-logo-preview", store.logo);
   setImagePreview("post-image-preview", today_post.image);
   setStatusButton(store.force_status);
@@ -329,6 +331,7 @@ function fillItemList(elementId, list) {
       <div class="field"><label>Extra em promoções (R$)</label><input type="number" min="0" step="0.5" class="item-promo-extra" value="${escapeHTML(item.promo_extra || 0)}"><small>Valor somado quando este produto for escolhido numa promoção.</small></div>
       <div class="field item-image-field"><label>Imagem do produto</label><input type="file" class="item-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="image-preview item-image-preview">${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
       <div class="field item-description-field"><label>Comentário / descrição</label><textarea class="item-description" placeholder="Ex.: Molho de tomate, mussarela e manjericão">${escapeHTML(item.description || "")}</textarea></div>
+      <label class="item-featured-field"><input type="checkbox" class="item-featured" ${item.featured ? "checked" : ""}> Destacar em "Mais pedidos"</label>
       <button type="button" class="delete-item-btn" data-id="${escapeHTML(item.id)}">Excluir produto</button>
     </div>`).join("");
 
@@ -484,7 +487,7 @@ function formatTimestamp(value) {
 function addItem(category) {
   const ids = currentData.items.map((item) => Number(item.id)).filter(Number.isFinite);
   const nextId = ids.length ? Math.max(...ids) + 1 : 1;
-  currentData.items.push({ id: nextId, category, name: "Novo produto", price: 0, promo_extra: 0, image: "", description: "" });
+  currentData.items.push({ id: nextId, category, name: "Novo produto", price: 0, promo_extra: 0, image: "", description: "", featured: false });
   fillForm(currentData);
   const sectionMap = { pizza: "pizzas-list", salgado: "salgados-list", bebida: "bebidas-list" };
   const row = document.getElementById(sectionMap[category]).querySelector(`.item-row[data-id="${nextId}"]`);
@@ -540,7 +543,7 @@ function collectForm() {
     if (!row) return null;
     const name = row.querySelector(".item-name-input").value.trim();
     if (!name) throw new Error("Todos os produtos precisam ter um nome.");
-    return { ...item, name, price: parseFloat(row.querySelector(".item-price").value) || 0, promo_extra: parseFloat(row.querySelector(".item-promo-extra").value) || 0, image: item.image || "", description: row.querySelector(".item-description").value.trim() };
+    return { ...item, name, price: parseFloat(row.querySelector(".item-price").value) || 0, promo_extra: parseFloat(row.querySelector(".item-promo-extra").value) || 0, image: item.image || "", description: row.querySelector(".item-description").value.trim(), featured: row.querySelector(".item-featured")?.checked || false };
   }).filter(Boolean);
 
   const promotions = [...document.querySelectorAll(".promo-admin-card")].map((card) => {
@@ -560,7 +563,7 @@ function collectForm() {
   });
 
   return {
-    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), logo: currentData.store.logo || "" },
+    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, logo: currentData.store.logo || "" },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
     promotions,

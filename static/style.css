@@ -956,3 +956,178 @@ footer.foot {
 }
 
 .pos-cart-total strong { color: var(--ember-dark); }
+
+/* ============================================================
+   BLOCO NOVO: barra de info, banner de promoção, nav de
+   categorias, "Mais pedidos" e animação de aparição ao rolar.
+   ============================================================ */
+
+:root {
+  --gold-line: rgba(255, 176, 32, 0.35);
+  --gold-glow: rgba(255, 176, 32, 0.30);
+}
+
+.info-bar {
+  background: var(--paper-warm);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 8px 24px;
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  letter-spacing: 0.03em;
+}
+
+.info-bar strong { color: var(--ink); }
+
+.promo-banner { max-width: 880px; margin: 4px auto 0; padding: 0 24px; }
+
+.promo-banner-inner {
+  background: linear-gradient(120deg, rgba(255, 176, 32, 0.16), rgba(255, 176, 32, 0.03));
+  border: 1px solid var(--gold-line);
+  border-radius: 18px;
+  padding: 16px 20px;
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.promo-banner-inner .txt {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 17px;
+}
+
+.promo-banner-inner .cta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ember-dark);
+  border: 1px solid var(--gold-line);
+  padding: 8px 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.cat-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(18, 16, 17, 0.92);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 24px;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.cat-nav a {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-soft);
+  text-decoration: none;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.cat-nav a:hover, .cat-nav a.active {
+  border-color: var(--ember);
+  color: var(--ember-dark);
+}
+
+.highlight-row {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.highlight-card {
+  flex: 0 0 160px;
+  background: var(--paper-warm);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  transition: transform 0.25s ease, border-color 0.25s ease;
+}
+
+.highlight-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--gold-line);
+}
+
+.highlight-card .badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ember-dark);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.highlight-card .thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  background: var(--paper);
+  border: 1px dashed var(--gold-line);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: center;
+  overflow: hidden;
+}
+
+.highlight-card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+.highlight-card .name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+
+.highlight-card .price {
+  font-family: var(--font-mono);
+  color: var(--ember-dark);
+  font-size: 13px;
+}
+
+#mais-pedidos-section.is-empty { display: none; }
+
+.item-featured-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: 4px 0 10px;
+}
+
+.item-featured-field input { accent-color: var(--ember); }
+
+/* ---------- aparição suave ao rolar a página ---------- */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.is-visible { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .card:hover, .highlight-card:hover { transform: none; }
+}

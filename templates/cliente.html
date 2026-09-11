@@ -9,6 +9,12 @@
 </head>
 <body>
 
+<div class="info-bar">
+  <span id="info-delivery"></span>
+  <span id="info-min-order"></span>
+  <span id="info-address"></span>
+</div>
+
 <header class="top">
   <div class="brand">
     <img class="brand-logo" id="brand-logo" src="" alt="Rey Pizzaria" style="display:none;">
@@ -20,6 +26,21 @@
   </div>
 </header>
 
+<div class="promo-banner" id="promo-banner" style="display:none;">
+  <div class="promo-banner-inner">
+    <span class="txt" id="promo-banner-text"></span>
+    <span class="cta">Aproveite →</span>
+  </div>
+</div>
+
+<nav class="cat-nav" id="cat-nav">
+  <a href="#mais-pedidos-section">Mais pedidos</a>
+  <a href="#promos-section">Promoções</a>
+  <a href="#pizzas-section">Pizzas</a>
+  <a href="#salgados-section">Salgados</a>
+  <a href="#bebidas-section">Bebidas</a>
+</nav>
+
 <main class="hero">
   <img class="logo-big" id="logo-big" src="" alt="Rey Pizzaria" style="display:none;">
   <p class="eyebrow" id="post-eyebrow">post de hoje</p>
@@ -30,24 +51,29 @@
   </div>
 
   <div class="wrap" style="padding:0;">
+    <div id="mais-pedidos-section" class="is-empty">
+      <h2 class="section-title reveal">🔥 Mais pedidos</h2>
+      <div class="highlight-row reveal" id="mais-pedidos-row"></div>
+    </div>
+
     <div id="promos-section">
-      <h2 class="section-title">Promoções</h2>
-      <div class="promo-grid" id="promos-grid"></div>
+      <h2 class="section-title reveal">Promoções</h2>
+      <div class="promo-grid reveal" id="promos-grid"></div>
     </div>
 
     <div id="pizzas-section">
-      <h2 class="section-title">Pizzas</h2>
-      <div class="grid" id="pizzas-grid"></div>
+      <h2 class="section-title reveal">Pizzas</h2>
+      <div class="grid reveal" id="pizzas-grid"></div>
     </div>
 
     <div id="salgados-section">
-      <h2 class="section-title">Salgados</h2>
-      <div class="grid" id="salgados-grid"></div>
+      <h2 class="section-title reveal">Salgados</h2>
+      <div class="grid reveal" id="salgados-grid"></div>
     </div>
 
     <div id="bebidas-section">
-      <h2 class="section-title">Bebidas</h2>
-      <div class="grid" id="bebidas-grid"></div>
+      <h2 class="section-title reveal">Bebidas</h2>
+      <div class="grid reveal" id="bebidas-grid"></div>
     </div>
   </div>
 </main>
