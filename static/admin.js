@@ -2,10 +2,12 @@ let currentData = null;
 
 async function loadData() {
   try {
-    const res = await fetch("/api/data");
+    const res = await fetch("/api/admin/data");
+    if (res.status === 401) { window.location.href = "/admin/login"; return; }
     if (!res.ok) throw new Error("Não foi possível carregar os dados.");
     currentData = await res.json();
     currentData.promotions = Array.isArray(currentData.promotions) ? currentData.promotions : [];
+    currentData.shifts = Array.isArray(currentData.shifts) ? currentData.shifts : [];
     fillForm(currentData);
   } catch (error) {
     console.error(error);
@@ -33,6 +35,7 @@ function fillForm(data) {
   document.getElementById("post-title").value = today_post.title;
   document.getElementById("post-text").value = today_post.text;
   fillPromoList(data.promotions, items);
+  fillShiftList(data.shifts);
   fillItemList("pizzas-list", items.filter((i) => i.category === "pizza"));
   fillItemList("salgados-list", items.filter((i) => i.category === "salgado"));
   fillItemList("bebidas-list", items.filter((i) => i.category === "bebida"));
@@ -392,6 +395,92 @@ function addPromoSlot(card) {
   slots.appendChild(div);
 }
 
+function fillShiftList(shifts) {
+  const container = document.getElementById("shifts-list");
+  if (!shifts.length) {
+    container.innerHTML = `<div class="empty-items">Nenhum turno cadastrado. Sem turnos, ninguém consegue entrar em /funcionarios.</div>`;
+    return;
+  }
+  container.innerHTML = shifts.map((shift) => `
+    <div class="shift-admin-card" data-shift-id="${escapeHTML(shift.id)}">
+      <div class="row">
+        <div class="field"><label>Nome do turno</label><input type="text" class="shift-name" value="${escapeHTML(shift.name)}" placeholder="Ex.: Turno 1 (18h-19h)"></div>
+        <div class="field"><label>Senha do turno</label><input type="text" class="shift-password" value="${escapeHTML(shift.password)}" placeholder="Senha para este turno"></div>
+      </div>
+      <button type="button" class="delete-item-btn delete-shift-btn">Excluir turno</button>
+    </div>`).join("");
+
+  container.querySelectorAll(".delete-shift-btn").forEach((btn) => btn.addEventListener("click", () => removeShift(btn.closest(".shift-admin-card").dataset.shiftId)));
+}
+
+function addShift() {
+  const ids = currentData.shifts.map((s) => Number(s.id)).filter(Number.isFinite);
+  const nextId = ids.length ? Math.max(...ids) + 1 : 1;
+  currentData.shifts.push({ id: nextId, name: `Turno ${nextId}`, password: "" });
+  fillForm(currentData);
+  const card = document.querySelector(`.shift-admin-card[data-shift-id="${nextId}"]`);
+  card?.scrollIntoView({ behavior: "smooth", block: "center" });
+  card?.querySelector(".shift-name")?.focus();
+}
+
+function removeShift(id) {
+  const shift = currentData.shifts.find((s) => String(s.id) === String(id));
+  if (!shift || !window.confirm(`Excluir o turno "${shift.name}"? Quem usa essa senha não conseguirá mais entrar em /funcionarios.`)) return;
+  currentData.shifts = currentData.shifts.filter((s) => String(s.id) !== String(id));
+  fillForm(currentData);
+}
+
+function formatPrice(value) {
+  return `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
+}
+
+async function loadSales() {
+  const statsEl = document.getElementById("sales-stats");
+  const tableEl = document.getElementById("sales-table-wrap");
+  if (!statsEl || !tableEl) return;
+  try {
+    const res = await fetch("/api/admin/sales");
+    if (res.status === 401) return;
+    if (!res.ok) throw new Error("Não foi possível carregar as vendas.");
+    const data = await res.json();
+
+    const byShiftHTML = Object.entries(data.stats.by_shift)
+      .map(([name, total]) => `<div class="sales-stat-card"><span>${escapeHTML(name)}</span><strong>${formatPrice(total)}</strong></div>`)
+      .join("") || `<div class="empty-items">Nenhuma venda registrada ainda.</div>`;
+
+    statsEl.innerHTML = `
+      <div class="sales-stat-card sales-stat-highlight"><span>Total geral</span><strong>${formatPrice(data.stats.total_geral)}</strong></div>
+      <div class="sales-stat-card sales-stat-highlight"><span>Últimos 7 dias</span><strong>${formatPrice(data.stats.total_semana)}</strong></div>
+      ${byShiftHTML}`;
+
+    if (!data.sales.length) {
+      tableEl.innerHTML = `<div class="empty-items">Nenhuma venda registrada ainda.</div>`;
+      return;
+    }
+
+    tableEl.innerHTML = `<table class="sales-table">
+      <thead><tr><th>Data/hora</th><th>Turno</th><th>Itens</th><th>Total</th></tr></thead>
+      <tbody>
+        ${data.sales.map((sale) => `<tr>
+          <td>${escapeHTML(formatTimestamp(sale.timestamp))}</td>
+          <td>${escapeHTML(sale.shift_name || "—")}</td>
+          <td>${sale.items.map((i) => `${escapeHTML(i.qty)}× ${escapeHTML(i.name)}`).join(", ")}</td>
+          <td>${formatPrice(sale.total)}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>`;
+  } catch (error) {
+    console.error(error);
+    statsEl.innerHTML = `<div class="empty-items">Erro ao carregar as vendas.</div>`;
+  }
+}
+
+function formatTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "—";
+  return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function addItem(category) {
   const ids = currentData.items.map((item) => Number(item.id)).filter(Number.isFinite);
   const nextId = ids.length ? Math.max(...ids) + 1 : 1;
@@ -433,6 +522,7 @@ document.querySelectorAll(".status-toggle button").forEach((btn) => btn.addEvent
 }));
 document.querySelectorAll(".add-item-btn[data-category]").forEach((button) => button.addEventListener("click", () => addItem(button.dataset.category)));
 document.querySelector(".add-promo-btn")?.addEventListener("click", addPromotion);
+document.querySelector(".add-shift-btn")?.addEventListener("click", addShift);
 document.getElementById("store-logo-file").addEventListener("change", async function () {
   await handleSingleImageUpload(this, (url) => { currentData.store.logo = url; }, "store-logo-preview", 1, "image/png");
 });
@@ -460,11 +550,21 @@ function collectForm() {
     return { ...existing, name: card.querySelector(".promo-name").value.trim(), price: parseFloat(card.querySelector(".promo-price").value) || 0, image: existing?.image || "", description: card.querySelector(".promo-description").value.trim(), slots };
   });
 
+  const shifts = [...document.querySelectorAll(".shift-admin-card")].map((card) => {
+    const existing = currentData.shifts.find((s) => String(s.id) === String(card.dataset.shiftId));
+    const name = card.querySelector(".shift-name").value.trim();
+    const password = card.querySelector(".shift-password").value.trim();
+    if (!name) throw new Error("Todos os turnos precisam ter um nome.");
+    if (!password) throw new Error(`O turno "${name}" precisa ter uma senha.`);
+    return { ...existing, name, password };
+  });
+
   return {
     store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), logo: currentData.store.logo || "" },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
-    promotions
+    promotions,
+    shifts
   };
 }
 
@@ -486,215 +586,5 @@ function showToast(message = "Alterações salvas") {
 }
 
 setupCropper();
-initAdminAuth();
-
-// ---------- autenticação do administrador ----------
-
-async function initAdminAuth() {
-  try {
-    const res = await fetch("/api/admin/session");
-    const data = await res.json();
-    if (data.authenticated) {
-      showAdminApp();
-    } else {
-      showLoginGate();
-    }
-  } catch (error) {
-    console.error(error);
-    showLoginGate();
-  }
-}
-
-function showLoginGate() {
-  document.getElementById("admin-login-gate").style.display = "flex";
-  document.getElementById("admin-app").style.display = "none";
-  document.getElementById("admin-login-password").focus();
-}
-
-function showAdminApp() {
-  document.getElementById("admin-login-gate").style.display = "none";
-  document.getElementById("admin-app").style.display = "";
-  loadData();
-  loadTurnos();
-}
-
-async function attemptAdminLogin() {
-  const password = document.getElementById("admin-login-password").value;
-  const errorEl = document.getElementById("admin-login-error");
-  errorEl.textContent = "";
-  try {
-    const res = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-    const result = await res.json();
-    if (!res.ok || !result.ok) {
-      errorEl.textContent = result.error || "Senha incorreta.";
-      return;
-    }
-    document.getElementById("admin-login-password").value = "";
-    showAdminApp();
-  } catch (error) {
-    console.error(error);
-    errorEl.textContent = "Erro ao entrar. Tente novamente.";
-  }
-}
-
-document.getElementById("admin-login-btn").addEventListener("click", attemptAdminLogin);
-document.getElementById("admin-login-password").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") attemptAdminLogin();
-});
-
-document.getElementById("admin-logout-btn").addEventListener("click", async () => {
-  try {
-    await fetch("/api/admin/logout", { method: "POST" });
-  } catch (error) {
-    console.error(error);
-  }
-  location.reload();
-});
-
-document.getElementById("change-pass-btn").addEventListener("click", async () => {
-  const current_password = document.getElementById("change-pass-current").value;
-  const new_password = document.getElementById("change-pass-new").value;
-  try {
-    const res = await fetch("/api/admin/change-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ current_password, new_password }),
-    });
-    const result = await res.json();
-    if (!res.ok || !result.ok) throw new Error(result.error);
-    document.getElementById("change-pass-current").value = "";
-    document.getElementById("change-pass-new").value = "";
-    showToast("Senha alterada");
-  } catch (error) {
-    console.error(error);
-    showToast(error.message || "Erro ao alterar a senha");
-  }
-});
-
-// ---------- turnos dos funcionários ----------
-
-let currentTurnos = [];
-
-async function loadTurnos() {
-  try {
-    const res = await fetch("/api/admin/turnos");
-    const data = await res.json();
-    currentTurnos = data.turnos || [];
-    renderTurnos();
-  } catch (error) {
-    console.error(error);
-    showToast("Erro ao carregar os turnos");
-  }
-}
-
-function renderTurnos() {
-  const list = document.getElementById("turnos-list");
-  list.innerHTML = "";
-
-  currentTurnos.forEach((turno) => {
-    const card = document.createElement("div");
-    card.className = "promo-admin-card turno-card";
-    card.dataset.turnoId = turno.id;
-    card.innerHTML = `
-      <div class="row">
-        <div class="field">
-          <label>Nome do turno</label>
-          <input type="text" class="turno-label" value="${escapeHTML(turno.label)}">
-        </div>
-        <div class="field">
-          <label>Início</label>
-          <input type="text" class="turno-inicio" value="${escapeHTML(turno.hora_inicio)}" placeholder="18:00">
-        </div>
-        <div class="field">
-          <label>Fim</label>
-          <input type="text" class="turno-fim" value="${escapeHTML(turno.hora_fim)}" placeholder="20:00">
-        </div>
-      </div>
-      <div class="row">
-        <div class="field">
-          <label>Nova senha (deixe em branco para manter a atual)</label>
-          <input type="password" class="turno-password" autocomplete="new-password">
-        </div>
-      </div>
-      <div class="turno-card-actions">
-        <button type="button" class="crop-secondary turno-save-btn">Salvar turno</button>
-        <button type="button" class="delete-item-btn turno-delete-btn">Excluir turno</button>
-      </div>
-    `;
-    list.appendChild(card);
-  });
-
-  list.querySelectorAll(".turno-save-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const card = btn.closest(".turno-card");
-      const id = card.dataset.turnoId;
-      const label = card.querySelector(".turno-label").value.trim();
-      const hora_inicio = card.querySelector(".turno-inicio").value.trim();
-      const hora_fim = card.querySelector(".turno-fim").value.trim();
-      const password = card.querySelector(".turno-password").value.trim();
-
-      try {
-        const res = await fetch(`/api/admin/turnos/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label, hora_inicio, hora_fim, password }),
-        });
-        const result = await res.json();
-        if (!res.ok || !result.ok) throw new Error(result.error);
-        showToast("Turno salvo");
-        loadTurnos();
-      } catch (error) {
-        console.error(error);
-        showToast(error.message || "Erro ao salvar o turno");
-      }
-    });
-  });
-
-  list.querySelectorAll(".turno-delete-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const card = btn.closest(".turno-card");
-      const id = card.dataset.turnoId;
-      if (!confirm("Excluir este turno? Os funcionários não poderão mais usar a senha dele.")) return;
-      try {
-        const res = await fetch(`/api/admin/turnos/${id}`, { method: "DELETE" });
-        const result = await res.json();
-        if (!res.ok || !result.ok) throw new Error(result.error);
-        loadTurnos();
-      } catch (error) {
-        console.error(error);
-        showToast(error.message || "Erro ao excluir o turno");
-      }
-    });
-  });
-}
-
-document.getElementById("add-turno-btn").addEventListener("click", async () => {
-  const label = prompt("Nome do turno (ex.: Turno da tarde):", "Novo turno");
-  if (!label) return;
-  const hora_inicio = prompt("Horário de início (ex.: 18:00):", "18:00") || "18:00";
-  const hora_fim = prompt("Horário de fim (ex.: 20:00):", "20:00") || "20:00";
-  const password = prompt("Senha deste turno (mínimo 4 caracteres):");
-  if (!password || password.trim().length < 4) {
-    showToast("A senha precisa ter pelo menos 4 caracteres");
-    return;
-  }
-
-  try {
-    const res = await fetch("/api/admin/turnos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label, hora_inicio, hora_fim, password: password.trim() }),
-    });
-    const result = await res.json();
-    if (!res.ok || !result.ok) throw new Error(result.error);
-    showToast("Turno adicionado");
-    loadTurnos();
-  } catch (error) {
-    console.error(error);
-    showToast(error.message || "Erro ao adicionar o turno");
-  }
-});
+loadData();
+loadSales();
