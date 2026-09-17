@@ -15,6 +15,22 @@ Cómo correrlo en tu computadora:
    - http://127.0.0.1:5000/admin          -> panel del administrador (pide contraseña)
    - http://127.0.0.1:5000/funcionarios   -> registro de ventas por turno (pide la senha del turno)
 
+BASE DE DATOS (SQLite):
+Los datos (cardápio, promociones, turnos, ventas) ahora se guardan en un
+archivo pizzaria.db, no en data.json. No necesitas instalar nada aparte,
+Python ya lo trae incluido. La primera vez que corras el proyecto, se crea
+pizzaria.db solo y copia automáticamente lo que había en data.json (después
+data.json se renombra a data.json.migrado, como respaldo).
+
+IMPORTANTE para Render: el plan gratis/básico de Render borra los archivos
+que se crean en el servidor cada vez que se reinicia o se actualiza el
+código (esto incluye tanto pizzaria.db como las fotos subidas en
+static/uploads/). Para que las ventas, el cardápio y las fotos NO se
+pierdan con cada reinicio, hay que agregar un "Persistent Disk" desde el
+panel de Render (Settings -> Disks) y montarlo en la carpeta del proyecto.
+Sin eso, cada reinicio del servidor vuelve a copiar los datos originales
+de data.json y las fotos subidas después se pierden.
+
 Antes de subirlo a Render (o cualquier hosting real), configura estas
 variables de entorno desde el panel de Render ("Environment"):
 - ADMIN_PASSWORD -> la contraseña real del panel /admin

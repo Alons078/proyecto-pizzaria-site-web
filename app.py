@@ -5,7 +5,9 @@ Servidor Flask da Rey Pizzaria.
 /admin         -> painel do administrador (requer senha)
 /funcionarios  -> registro de vendas por turno (requer senha do turno)
 
-Os dados do cardápio, promoções, turnos e vendas são armazenados em data.json.
+Os dados do cardápio, promoções, turnos e vendas são armazenados em um banco
+SQLite (pizzaria.db), pelo módulo db.py. Isso evita que duas vendas ao mesmo
+tempo corrompam os dados, coisa que podia acontecer com o antigo data.json.
 As imagens enviadas pelo administrador são armazenadas em:
 static/uploads/
 
@@ -20,16 +22,16 @@ from flask import Flask, jsonify, request, render_template, session, redirect, u
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from functools import wraps
-import json
 import os
 import uuid
 import hmac
 import secrets
 
+import db
+
 app = Flask(__name__)
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_PATH, "data.json")
 UPLOAD_FOLDER = os.path.join(BASE_PATH, "static", "uploads")
 
 # Limite de 8 MB por arquivo enviado.
@@ -52,18 +54,7 @@ if not os.environ.get("SECRET_KEY"):
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-def load_data():
-    with open(DATA_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    data.setdefault("promotions", [])
-    data.setdefault("shifts", [])
-    data.setdefault("sales", [])
-    return data
-
-
-def save_data(data):
-    with open(DATA_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+db.init_db()
 
 
 def is_allowed_image(filename):
@@ -147,7 +138,7 @@ def funcionarios():
 @app.route("/api/data", methods=["GET"])
 def get_data():
     """Dados públicos para a vista do cliente. Não inclui turnos, senhas nem vendas."""
-    data = load_data()
+    data = db.load_data()
     data["store"]["is_open"] = is_open_now(data["store"])
     public = {
         "store": data["store"],
@@ -163,7 +154,7 @@ def get_data():
 @app.route("/api/admin/data", methods=["GET"])
 @require_admin
 def get_admin_data():
-    data = load_data()
+    data = db.load_data()
     data["store"]["is_open"] = is_open_now(data["store"])
     admin_view = {
         "store": data["store"],
@@ -178,7 +169,7 @@ def get_admin_data():
 @app.route("/api/data", methods=["POST"])
 @require_admin
 def update_data():
-    """Recebe o objeto completo enviado pelo administrador e salva no data.json."""
+    """Recebe o objeto completo enviado pelo administrador e salva no banco."""
     new_data = request.get_json(silent=True)
 
     if not isinstance(new_data, dict):
@@ -214,19 +205,16 @@ def update_data():
         seen_passwords.add(password)
         shift["password"] = password
 
-    # A lista de vendas é gerenciada só pelas rotas de funcionários,
-    # nunca é sobrescrita a partir do painel do admin.
-    existing = load_data()
-    new_data["sales"] = existing["sales"]
-
-    save_data(new_data)
+    # save_menu_data nunca mexe na tabela de vendas: elas só são gravadas
+    # pela rota de funcionários (insert_sale), uma de cada vez.
+    db.save_menu_data(new_data)
     return jsonify({"ok": True})
 
 
 @app.route("/api/admin/sales", methods=["GET"])
 @require_admin
 def admin_sales():
-    data = load_data()
+    data = db.load_data()
     sales = data["sales"]
 
     total_geral = round(sum(float(s.get("total", 0)) for s in sales), 2)
@@ -270,7 +258,7 @@ def employee_login():
     if not password:
         return jsonify({"ok": False, "error": "Digite a senha do turno."}), 400
 
-    data = load_data()
+    data = db.load_data()
     for shift in data["shifts"]:
         shift_password = str(shift.get("password") or "")
         if shift_password and hmac.compare_digest(shift_password, password):
@@ -292,7 +280,7 @@ def employee_logout():
 def employee_session():
     if not session.get("shift_id"):
         return jsonify({"ok": False})
-    data = load_data()
+    data = db.load_data()
     return jsonify({
         "ok": True,
         "shift": {"id": session["shift_id"], "name": session.get("shift_name", "")},
@@ -308,7 +296,7 @@ def register_sale():
     if not isinstance(cart, list) or not cart:
         return jsonify({"ok": False, "error": "Adicione pelo menos um produto à venda."}), 400
 
-    data = load_data()
+    data = db.load_data()
     items_by_id = {}
     for entry in data["items"]:
         try:
@@ -343,20 +331,16 @@ def register_sale():
     if not sale_items:
         return jsonify({"ok": False, "error": "Adicione pelo menos um produto à venda."}), 400
 
-    sales = data["sales"]
-    sale_ids = [int(s.get("id", 0)) for s in sales if str(s.get("id", "")).isdigit()]
-    next_id = max(sale_ids) + 1 if sale_ids else 1
-
     sale = {
-        "id": next_id,
         "shift_id": session.get("shift_id"),
         "shift_name": session.get("shift_name", ""),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "items": sale_items,
         "total": round(total, 2),
     }
-    sales.append(sale)
-    save_data(data)
+    # insert_sale grava só esta venda (uma linha), sem tocar no resto dos
+    # dados — é essa a mudança que evita que vendas simultâneas se atropelem.
+    sale["id"] = db.insert_sale(sale)
     return jsonify({"ok": True, "sale": sale})
 
 
