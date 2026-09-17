@@ -31,6 +31,7 @@ function fillForm(data) {
   document.getElementById("store-address").value = store.address;
   document.getElementById("store-delivery-time").value = store.delivery_time || "";
   document.getElementById("store-min-order").value = store.min_order || "";
+  document.getElementById("store-whatsapp").value = store.whatsapp_number || "";
   setImagePreview("store-logo-preview", store.logo);
   setImagePreview("post-image-preview", today_post.image);
   setStatusButton(store.force_status);
@@ -563,7 +564,7 @@ function collectForm() {
   });
 
   return {
-    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, logo: currentData.store.logo || "" },
+    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, whatsapp_number: document.getElementById("store-whatsapp").value.trim(), logo: currentData.store.logo || "" },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
     promotions,

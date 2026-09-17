@@ -110,13 +110,13 @@ function fillMaisPedidos(items) {
 
   section.classList.remove("is-empty");
   row.innerHTML = featured.map((item, index) => `
-    <div class="highlight-card reveal" style="transition-delay:${Math.min(index, 8) * 70}ms">
+    <a class="highlight-card reveal" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
       <div class="thumb">
         ${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>foto</span>`}
       </div>
       <div class="name">${escapeHTML(item.name)}</div>
       <div class="price">${formatPrice(item.price)}</div>
-    </div>`).join("");
+    </a>`).join("");
 
   setupScrollReveal();
 }
@@ -148,7 +148,7 @@ function fillGrid(elementId, list) {
   grid.innerHTML = list
     .map(
       (item, index) => `
-    <div class="card reveal" style="transition-delay:${Math.min(index, 8) * 70}ms">
+    <a class="card reveal" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
       <div class="image-slot small">
         ${
           item.image
@@ -163,7 +163,8 @@ function fillGrid(elementId, list) {
           : ""
       }
       <div class="price">R$ ${Number(item.price || 0).toFixed(2)}</div>
-    </div>`
+      <span class="card-cta">Ver e pedir →</span>
+    </a>`
     )
     .join("");
 
@@ -186,46 +187,14 @@ function fillPromotions(promotions, items) {
     return;
   }
   section.style.display = "block";
-  grid.innerHTML = promotions.map((promo, promoIndex) => {
-    const slots = (promo.slots || []).map((slot, index) => {
-      const options = items.filter((item) => item.category === slot.category);
-      return `<div class="promo-choice">
-        <label>${escapeHTML(slot.label || `Escolha ${index + 1}`)}</label>
-        <select class="promo-select" data-slot-index="${index}">
-          <option value="">Selecione ${escapeHTML(categoryLabel(slot.category))}</option>
-          ${options.map((item) => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}${Number(item.promo_extra || 0) > 0 ? ` (+${formatPrice(item.promo_extra)})` : ""}</option>`).join("")}
-        </select>
-      </div>`;
-    }).join("");
-    return `<div class="promo-card reveal" style="transition-delay:${Math.min(promoIndex, 8) * 70}ms" data-promo-id="${escapeHTML(promo.id)}">
+  grid.innerHTML = promotions.map((promo, promoIndex) => `
+    <a class="promo-card reveal" style="transition-delay:${Math.min(promoIndex, 8) * 70}ms" href="/promocao/${escapeHTML(promo.id)}">
       <div class="image-slot small">${promo.image ? `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">` : `<span>foto</span>`}</div>
       <div class="name">${escapeHTML(promo.name)}</div>
       ${promo.description ? `<div class="description">${escapeHTML(promo.description)}</div>` : ""}
       <div class="promo-base-price">Preço base: ${formatPrice(promo.price)}</div>
-      <div class="promo-choices">${slots}</div>
-      <div class="promo-total">Total: <strong>${formatPrice(promo.price)}</strong></div>
-      <div class="promo-warning" aria-live="polite"></div>
-    </div>`;
-  }).join("");
-
-  grid.querySelectorAll(".promo-card").forEach((card) => {
-    const promo = promotions.find((p) => String(p.id) === String(card.dataset.promoId));
-    const selects = [...card.querySelectorAll(".promo-select")];
-    const updateTotal = () => {
-      let total = Number(promo.price || 0);
-      let complete = true;
-      selects.forEach((select) => {
-        if (!select.value) { complete = false; return; }
-        const item = items.find((i) => String(i.id) === String(select.value));
-        total += Number(item?.promo_extra || 0);
-      });
-      card.querySelector(".promo-total strong").textContent = formatPrice(total);
-      const warning = card.querySelector(".promo-warning");
-      warning.textContent = complete ? "" : "Selecione todas as opções para ver o valor final.";
-    };
-    selects.forEach((select) => select.addEventListener("change", updateTotal));
-    updateTotal();
-  });
+      <span class="card-cta">Escolher e pedir →</span>
+    </a>`).join("");
 
   setupScrollReveal();
 }

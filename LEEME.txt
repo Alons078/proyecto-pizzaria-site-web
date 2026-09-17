@@ -15,6 +15,29 @@ Cómo correrlo en tu computadora:
    - http://127.0.0.1:5000/admin          -> panel del administrador (pide contraseña)
    - http://127.0.0.1:5000/funcionarios   -> registro de ventas por turno (pide la senha del turno)
 
+CARRINHO DO CLIENTE E PEDIDOS PELO WHATSAPP:
+Agora, ao clicar numa pizza, salgado, bebida ou promoção, o cliente vai
+para uma página própria daquele produto, onde escolhe a quantidade (e, no
+caso das promoções, os sabores de cada posição) e adiciona ao carrinho.
+O carrinho fica salvo no próprio navegador do cliente (não no servidor),
+então continua igual se ele voltar ao cardápio para adicionar mais coisas.
+Na página do carrinho (ícone 🛒 no topo do site), o cliente revisa os
+itens, escolhe retirada ou entrega, forma de pagamento, e ao confirmar o
+pedido se abre o WhatsApp com uma mensagem pronta, já com a lista de itens
+e o total, para ele enviar direto para a pizzaria.
+
+IMPORTANTE: para isso funcionar, é preciso cadastrar o número de WhatsApp
+da pizzaria no painel do administrador, na seção "Loja", campo "WhatsApp
+para receber os pedidos" (com código do país e DDD, só números, ex.:
+5521999998888). Sem esse número cadastrado, o botão de confirmar pedido
+avisa o cliente que ainda não é possível fechar o pedido por lá.
+
+Esse pedido feito pelo WhatsApp é só uma mensagem para o cliente confirmar
+com a pizzaria — ele não fica registrado automaticamente no sistema de
+vendas do painel do admin. Quem registra a venda no sistema (para entrar
+nas estatísticas) continua sendo o funcionário, pela página /funcionarios,
+depois de combinar o pedido com o cliente.
+
 BASE DE DATOS (SQLite):
 Los datos (cardápio, promociones, turnos, ventas) ahora se guardan en un
 archivo pizzaria.db, no en data.json. No necesitas instalar nada aparte,

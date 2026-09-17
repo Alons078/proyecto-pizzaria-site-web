@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS store (
     hours_close TEXT NOT NULL DEFAULT '20:00',
     force_status INTEGER,
     delivery_time TEXT NOT NULL DEFAULT '',
-    min_order REAL NOT NULL DEFAULT 0
+    min_order REAL NOT NULL DEFAULT 0,
+    whatsapp_number TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS today_post (
@@ -97,6 +98,13 @@ def init_db():
     conn.executescript(SCHEMA)
     conn.commit()
 
+    # Se o banco já existia de uma versão anterior (antes da coluna
+    # whatsapp_number existir), adiciona a coluna sem apagar nada.
+    existing_columns = [r["name"] for r in conn.execute("PRAGMA table_info(store)").fetchall()]
+    if "whatsapp_number" not in existing_columns:
+        conn.execute("ALTER TABLE store ADD COLUMN whatsapp_number TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+
     row = conn.execute("SELECT COUNT(*) AS c FROM store").fetchone()
     is_empty = row["c"] == 0
     conn.close()
@@ -114,8 +122,8 @@ def _migrate_from_json():
     hours = store.get("hours", {})
     conn.execute(
         """INSERT OR REPLACE INTO store
-        (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order)
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             store.get("name", ""),
             store.get("logo", ""),
@@ -125,6 +133,7 @@ def _migrate_from_json():
             _bool_to_int_or_none(store.get("force_status")),
             store.get("delivery_time", ""),
             float(store.get("min_order", 0) or 0),
+            store.get("whatsapp_number", ""),
         ),
     )
 
@@ -229,6 +238,7 @@ def load_data():
         "force_status": _int_to_bool_or_none(store_row["force_status"]),
         "delivery_time": store_row["delivery_time"],
         "min_order": store_row["min_order"],
+        "whatsapp_number": store_row["whatsapp_number"],
     } if store_row else {}
 
     today_post = {
@@ -302,8 +312,8 @@ def save_menu_data(new_data):
         hours = store.get("hours", {})
         conn.execute(
             """INSERT OR REPLACE INTO store
-            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 store.get("name", ""),
                 store.get("logo", ""),
@@ -313,6 +323,7 @@ def save_menu_data(new_data):
                 _bool_to_int_or_none(store.get("force_status")),
                 store.get("delivery_time", ""),
                 float(store.get("min_order", 0) or 0),
+                store.get("whatsapp_number", ""),
             ),
         )
 

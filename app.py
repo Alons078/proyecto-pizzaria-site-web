@@ -133,6 +133,29 @@ def funcionarios():
     return render_template("funcionarios.html")
 
 
+@app.route("/produto/<int:item_id>")
+def produto(item_id):
+    data = db.load_data()
+    item = next((i for i in data["items"] if int(i["id"]) == item_id), None)
+    if not item:
+        return redirect(url_for("cliente"))
+    return render_template("produto.html", item_id=item_id)
+
+
+@app.route("/promocao/<int:promo_id>")
+def promocao(promo_id):
+    data = db.load_data()
+    promo = next((p for p in data["promotions"] if int(p["id"]) == promo_id), None)
+    if not promo:
+        return redirect(url_for("cliente"))
+    return render_template("promocao.html", promo_id=promo_id)
+
+
+@app.route("/carrinho")
+def carrinho():
+    return render_template("carrinho.html")
+
+
 # ---------- API pública (vista do cliente) ----------
 
 @app.route("/api/data", methods=["GET"])
@@ -147,6 +170,35 @@ def get_data():
         "promotions": data["promotions"],
     }
     return jsonify(public)
+
+
+@app.route("/api/item/<int:item_id>", methods=["GET"])
+def get_item(item_id):
+    """Dados públicos de um único produto, para a página de detalhe."""
+    data = db.load_data()
+    item = next((i for i in data["items"] if int(i["id"]) == item_id), None)
+    if not item:
+        return jsonify({"ok": False, "error": "Produto não encontrado."}), 404
+    return jsonify({
+        "ok": True,
+        "item": item,
+        "store": {"whatsapp_number": data["store"].get("whatsapp_number", "")},
+    })
+
+
+@app.route("/api/promotion/<int:promo_id>", methods=["GET"])
+def get_promotion(promo_id):
+    """Dados públicos de uma única promoção, para a página de detalhe."""
+    data = db.load_data()
+    promo = next((p for p in data["promotions"] if int(p["id"]) == promo_id), None)
+    if not promo:
+        return jsonify({"ok": False, "error": "Promoção não encontrada."}), 404
+    return jsonify({
+        "ok": True,
+        "promotion": promo,
+        "items": data["items"],
+        "store": {"whatsapp_number": data["store"].get("whatsapp_number", "")},
+    })
 
 
 # ---------- API do administrador ----------
