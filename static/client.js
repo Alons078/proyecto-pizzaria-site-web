@@ -109,28 +109,37 @@ function fillMaisPedidos(items) {
   }
 
   section.classList.remove("is-empty");
-  row.innerHTML = featured.map((item) => `
-    <div class="highlight-card">
+  row.innerHTML = featured.map((item, index) => `
+    <div class="highlight-card reveal" style="transition-delay:${Math.min(index, 8) * 70}ms">
       <div class="thumb">
         ${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>foto</span>`}
       </div>
       <div class="name">${escapeHTML(item.name)}</div>
       <div class="price">${formatPrice(item.price)}</div>
     </div>`).join("");
+
+  setupScrollReveal();
 }
 
+let revealObserver = null;
+
 function setupScrollReveal() {
-  const els = document.querySelectorAll(".reveal");
+  const els = document.querySelectorAll(".reveal:not(.is-observed)");
   if (!("IntersectionObserver" in window)) {
-    els.forEach((el) => el.classList.add("is-visible"));
+    els.forEach((el) => el.classList.add("is-visible", "is-observed"));
     return;
   }
-  const obs = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) entry.target.classList.add("is-visible");
-    });
-  }, { threshold: 0.12 });
-  els.forEach((el) => obs.observe(el));
+  if (!revealObserver) {
+    revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) entry.target.classList.add("is-visible");
+      });
+    }, { threshold: 0.12 });
+  }
+  els.forEach((el) => {
+    el.classList.add("is-observed");
+    revealObserver.observe(el);
+  });
 }
 
 function fillGrid(elementId, list) {
@@ -138,8 +147,8 @@ function fillGrid(elementId, list) {
 
   grid.innerHTML = list
     .map(
-      (item) => `
-    <div class="card">
+      (item, index) => `
+    <div class="card reveal" style="transition-delay:${Math.min(index, 8) * 70}ms">
       <div class="image-slot small">
         ${
           item.image
@@ -157,6 +166,8 @@ function fillGrid(elementId, list) {
     </div>`
     )
     .join("");
+
+  setupScrollReveal();
 }
 
 loadData();
@@ -175,7 +186,7 @@ function fillPromotions(promotions, items) {
     return;
   }
   section.style.display = "block";
-  grid.innerHTML = promotions.map((promo) => {
+  grid.innerHTML = promotions.map((promo, promoIndex) => {
     const slots = (promo.slots || []).map((slot, index) => {
       const options = items.filter((item) => item.category === slot.category);
       return `<div class="promo-choice">
@@ -186,7 +197,7 @@ function fillPromotions(promotions, items) {
         </select>
       </div>`;
     }).join("");
-    return `<div class="promo-card" data-promo-id="${escapeHTML(promo.id)}">
+    return `<div class="promo-card reveal" style="transition-delay:${Math.min(promoIndex, 8) * 70}ms" data-promo-id="${escapeHTML(promo.id)}">
       <div class="image-slot small">${promo.image ? `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">` : `<span>foto</span>`}</div>
       <div class="name">${escapeHTML(promo.name)}</div>
       ${promo.description ? `<div class="description">${escapeHTML(promo.description)}</div>` : ""}
@@ -215,6 +226,8 @@ function fillPromotions(promotions, items) {
     selects.forEach((select) => select.addEventListener("change", updateTotal));
     updateTotal();
   });
+
+  setupScrollReveal();
 }
 
 function categoryLabel(category) {
