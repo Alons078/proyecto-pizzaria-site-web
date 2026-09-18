@@ -20,6 +20,7 @@ Variáveis de ambiente usadas em produção (configure-as no Render):
 
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 from functools import wraps
 import os
@@ -28,6 +29,36 @@ import hmac
 import secrets
 
 import db
+
+
+def _is_password_hash(value):
+    """Detecta si un valor ya es un hash de Werkzeug (pbkdf2/scrypt)."""
+    if not value or not isinstance(value, str):
+        return False
+    return value.startswith("pbkdf2:") or value.startswith("scrypt:")
+
+
+def hash_shift_password(plain):
+    """Hashea una contraseña de turno. Si ya es un hash, la deja igual."""
+    plain = str(plain or "").strip()
+    if not plain:
+        return plain
+    if _is_password_hash(plain):
+        return plain
+    return generate_password_hash(plain)
+
+
+def check_shift_password(stored, plain):
+    """Compara contraseña de turno. Acepta hashes nuevos y texto plano antiguo (migración)."""
+    stored = str(stored or "")
+    plain = str(plain or "")
+    if not stored or not plain:
+        return False
+    if _is_password_hash(stored):
+        return check_password_hash(stored, plain)
+    # Compatibilidad: turnos guardados antes del hash (texto plano)
+    return hmac.compare_digest(stored, plain)
+
 
 app = Flask(__name__)
 
@@ -312,12 +343,22 @@ def order_printed(order_id):
 def get_admin_data():
     data = db.load_data()
     data["store"]["is_open"] = is_open_now(data["store"])
+    # No devolver hashes ni contraseñas reales al navegador.
+    # El admin solo ve un marcador; si no cambia el campo, se conserva la anterior.
+    safe_shifts = []
+    for shift in data.get("shifts", []):
+        safe_shifts.append({
+            "id": shift["id"],
+            "name": shift.get("name", ""),
+            "password": "__unchanged__" if shift.get("password") else "",
+            "has_password": bool(shift.get("password")),
+        })
     admin_view = {
         "store": data["store"],
         "today_post": data["today_post"],
         "items": data["items"],
         "promotions": data["promotions"],
-        "shifts": data["shifts"],
+        "shifts": safe_shifts,
         "pizza_sizes": data["pizza_sizes"],
     }
     return jsonify(admin_view)
@@ -362,17 +403,24 @@ def update_data():
         if not isinstance(promo.get("slots", []), list) or not promo.get("slots"):
             return jsonify({"ok": False, "error": f'A promoção "{promo.get("name", "")}" precisa ter pelo menos uma escolha.'}), 400
 
-    seen_passwords = set()
+    # Contraseñas de turnos: se hashean antes de guardar.
+    # Si el admin deja el campo vacío o con el marcador "__unchanged__",
+    # se conserva el hash anterior (no se puede "ver" la contraseña).
+    existing_data = db.load_data()
+    existing_by_id = {str(s["id"]): s for s in existing_data.get("shifts", [])}
+
     for shift in new_data["shifts"]:
         if not isinstance(shift, dict) or not shift.get("name"):
             return jsonify({"ok": False, "error": "Existe um turno sem nome."}), 400
         password = str(shift.get("password") or "").strip()
-        if not password:
-            return jsonify({"ok": False, "error": f'O turno "{shift.get("name")}" precisa ter uma senha.'}), 400
-        if password in seen_passwords:
-            return jsonify({"ok": False, "error": "Dois turnos não podem usar a mesma senha."}), 400
-        seen_passwords.add(password)
-        shift["password"] = password
+        old = existing_by_id.get(str(shift.get("id")))
+        if not password or password == "__unchanged__":
+            if old and old.get("password"):
+                shift["password"] = old["password"]
+            else:
+                return jsonify({"ok": False, "error": f'O turno "{shift.get("name")}" precisa ter uma senha.'}), 400
+        else:
+            shift["password"] = hash_shift_password(password)
 
     # save_menu_data nunca mexe na tabela de vendas: elas só são gravadas
     # pela rota de funcionários (insert_sale), uma de cada vez.
@@ -441,7 +489,7 @@ def employee_login():
     data = db.load_data()
     for shift in data["shifts"]:
         shift_password = str(shift.get("password") or "")
-        if shift_password and hmac.compare_digest(shift_password, password):
+        if shift_password and check_shift_password(shift_password, password):
             session["shift_id"] = shift["id"]
             session["shift_name"] = shift.get("name", "")
             return jsonify({"ok": True, "shift": {"id": shift["id"], "name": shift.get("name", "")}})
