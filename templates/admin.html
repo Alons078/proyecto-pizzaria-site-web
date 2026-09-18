@@ -63,6 +63,15 @@
       <input type="text" id="store-whatsapp" placeholder="Ex.: 5521999998888">
     </div>
     <div class="field">
+      <label>Agente de impressão térmica</label>
+      <div class="print-token-row">
+        <input type="text" id="store-print-token" readonly placeholder="Nenhum token gerado ainda">
+        <button type="button" id="print-token-copy-btn">Copiar</button>
+        <button type="button" id="print-token-regenerate-btn">Gerar novo</button>
+      </div>
+      <p class="field-hint">Copie este token para dentro do arquivo imprimir_agent.py no computador da pizzaria, na linha PRINT_TOKEN. Gerar um novo invalida o anterior.</p>
+    </div>
+    <div class="field">
       <label>Logo da pizzaria</label>
       <input type="file" id="store-logo-file" accept="image/png,image/jpeg,image/webp,image/gif">
       <div class="image-preview" id="store-logo-preview"><span>Nenhuma imagem selecionada</span></div>
