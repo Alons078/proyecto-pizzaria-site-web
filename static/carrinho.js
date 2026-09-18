@@ -206,52 +206,19 @@ function sendToWhatsApp(cart, total) {
   }
   warningEl.textContent = "";
 
-  const lines = cart.map((line) =>
-    `• ${line.qty}x ${line.name} — ${cartFormatPrice(line.unit_price * line.qty)}`
-  );
-
-  let message = `Olá! Gostaria de fazer o seguinte pedido:\n\n`;
-  message += lines.join("\n");
-  message += `\n\n*Total: ${cartFormatPrice(total)}*\n\n`;
-  message += `Nome: ${name}\n`;
-  message += `Entrega: ${delivery}\n`;
-  if (delivery === "Entrega (delivery)") message += `Endereço: ${address}\n`;
-  message += `Pagamento: ${payment}\n`;
-  if (trocoPaidWith !== null) {
-    message += `Troco para: ${cartFormatPrice(trocoPaidWith)} (troco de ${cartFormatPrice(trocoAmount)})\n`;
-  }
-  if (notes) message += `Observações: ${notes}\n`;
+  const checkout = { name, delivery, address, payment, notes, trocoPaidWith, trocoAmount };
 
   /* Manda o pedido para o servidor (para o agente de impressão térmica
    * pegar), mas sem travar o cliente: mesmo que isso falhe (sem
    * internet no momento, servidor fora do ar), o pedido continua indo
    * pelo WhatsApp normalmente — só não vai sair impresso sozinho. */
-  registrarPedidoParaImpressao(cart, total, {
-    name, delivery, address, payment, notes,
-    troco_paid_with: trocoPaidWith,
-    troco_amount: trocoAmount,
-  });
+  cartRegisterOrder(cart, checkout);
 
+  const message = cartOrderMessage(cart, total, checkout);
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");
   cartClear();
   renderCart();
-}
-
-function registrarPedidoParaImpressao(cart, total, checkout) {
-  const payload = {
-    items: cart.map((line) => ({ name: line.name, qty: line.qty, unit_price: line.unit_price })),
-    customer_name: checkout.name,
-    delivery_type: checkout.delivery,
-    address: checkout.address,
-    payment_method: checkout.payment,
-    notes: checkout.notes,
-  };
-  fetch("/api/pedidos", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).catch((error) => console.error("Não foi possível registrar o pedido para impressão:", error));
 }
 
 loadStoreInfo().then(renderCart);

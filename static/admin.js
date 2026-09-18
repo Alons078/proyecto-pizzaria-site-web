@@ -332,7 +332,7 @@ function fillItemList(elementId, list) {
     <div class="item-row" data-id="${escapeHTML(item.id)}">
       <div class="field item-name-field"><label>Nome</label><input type="text" class="item-name-input" value="${escapeHTML(item.name)}" placeholder="Nome do produto"></div>
       <div class="field"><label>Preço (R$)</label><input type="number" min="0" step="0.5" class="item-price" value="${escapeHTML(item.price)}"></div>
-      <div class="field"><label>Extra em promoções (R$)</label><input type="number" min="0" step="0.5" class="item-promo-extra" value="${escapeHTML(item.promo_extra || 0)}"><small>Valor somado quando este produto for escolhido numa promoção.</small></div>
+      <div class="field"><label>Extra por sabor (R$)</label><input type="number" min="0" step="0.5" class="item-promo-extra" value="${escapeHTML(item.promo_extra || 0)}"><small>Valor somado quando este produto for escolhido numa promoção, ou como sabor adicional na página de outra pizza.</small></div>
       <div class="field item-image-field"><label>Imagem do produto</label><input type="file" class="item-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="image-preview item-image-preview">${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
       <div class="field item-description-field"><label>Comentário / descrição</label><textarea class="item-description" placeholder="Ex.: Molho de tomate, mussarela e manjericão">${escapeHTML(item.description || "")}</textarea></div>
       <label class="item-featured-field"><input type="checkbox" class="item-featured" ${item.featured ? "checked" : ""}> Destacar em "Mais pedidos"</label>
