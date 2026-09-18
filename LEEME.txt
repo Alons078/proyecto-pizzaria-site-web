@@ -91,3 +91,71 @@ Qué cambió en esta versión:
 - Se corrigieron dos errores del prototipo anterior: un enlace roto
   del logo en la vista del cliente, y un producto de prueba vacío
   que había quedado en el cardápio.
+
+===========================================================
+IMPRESIÓN AUTOMÁTICA EN LA IMPRESORA TÉRMICA (nuevo)
+===========================================================
+
+Ahora, cada vez que un cliente confirma un pedido en /carrinho, además
+de abrirse el WhatsApp, el pedido queda anotado en el servidor para
+que se imprima solo en la impresora térmica de la pizzería (probado
+con la Knup KP-IM607, pero funciona con cualquier impresora térmica
+USB que Windows reconozca como impresora normal).
+
+Cómo funciona: el pedido NO se imprime desde el servidor de Render
+directamente (Render no puede "ver" una impresora que está en la
+computadora de la pizzería). En cambio, un programita chiquito
+(agente_impressora/imprimir_agent.py) corre en esa computadora,
+pregunta cada 5 segundos si llegó un pedido nuevo, y si llegó, lo
+manda a imprimir y avisa al servidor que ya se imprimió.
+
+PASOS PARA DEJARLO FUNCIONANDO (una sola vez):
+
+1. En la computadora de la pizzería (con Windows), conectá la
+   impresora por USB e instalá su driver si Windows lo pide. Debe
+   aparecer en Configuración > Bluetooth y dispositivos > Impresoras
+   y escáneres.
+
+2. Instalá Python en esa computadora si no lo tiene (python.org,
+   marcando la casilla "Add python.exe to PATH" al instalar).
+
+3. Copiá la carpeta "agente_impressora" a esa computadora (puede ir,
+   por ejemplo, en el Escritorio).
+
+4. Abrí una terminal (cmd) dentro de esa carpeta y ejecutá:
+     pip install -r requirements.txt
+
+5. Ejecutá:
+     python listar_impressoras.py
+   Copiá el nombre EXACTO que aparezca entre comillas.
+
+6. Abrí imprimir_agent.py con el Bloc de notas y completá las tres
+   líneas de arriba (CONFIGURAÇÃO):
+     SERVER_URL   -> la dirección de tu sitio en Render
+     PRINT_TOKEN  -> el token que aparece en /admin, sección Loja,
+                     "Agente de impressão" (botón "Gerar novo" si
+                     todavía no hay uno)
+     PRINTER_NAME -> el nombre que copiaste en el paso 5
+
+7. Ejecutá:
+     python imprimir_agent.py
+   Dejá esa ventana abierta mientras la pizzería esté recibiendo
+   pedidos. Cada pedido nuevo se imprime solo, como un ticket de
+   cocina (nombre del cliente, ítems, total, forma de pago y
+   observaciones).
+
+8. (Opcional, para que arranque solo con la computadora) Creá un
+   acceso directo a imprimir_agent.py dentro de la carpeta de Inicio
+   de Windows (Win+R, escribí shell:startup, Enter).
+
+Notas importantes:
+- Si alguna vez cambiás el token desde /admin (botón "Gerar novo"),
+  tenés que actualizar también PRINT_TOKEN en imprimir_agent.py, o
+  el programa va a dejar de poder conectarse.
+- Este ticket es solo para que la cocina vea el pedido más rápido.
+  Igual que antes, la venta real sigue registrándose a mano por el
+  empleado en /funcionarios — la impresión no reemplaza eso.
+- Si el pedido se abre en WhatsApp pero por algún motivo no se
+  imprime (por ejemplo, la computadora de la pizzería estaba
+  apagada), el mensaje de WhatsApp sigue llegando igual: la
+  impresión es un extra, no el único aviso del pedido.

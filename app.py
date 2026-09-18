@@ -84,6 +84,20 @@ def require_admin(view):
     return wrapped
 
 
+def require_print_agent(view):
+    """Protege as rotas que o programinha da impressora térmica usa.
+    Ele não faz login como o admin; manda o token num cabeçalho."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        data = db.load_data()
+        expected = (data["store"].get("print_agent_token") or "").strip()
+        sent = (request.headers.get("X-Print-Token") or "").strip()
+        if not expected or not sent or not hmac.compare_digest(sent, expected):
+            return jsonify({"ok": False, "error": "Token do agente de impressão inválido ou não configurado."}), 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def require_employee(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -201,6 +215,74 @@ def get_promotion(promo_id):
     })
 
 
+# ---------- pedidos do cliente (fila de impressão térmica) ----------
+
+MAX_ORDER_ITEMS = 40
+
+
+@app.route("/api/pedidos", methods=["POST"])
+def create_order():
+    """O carrinho do cliente manda o pedido pra cá antes de abrir o
+    WhatsApp, só para que o agente de impressão da pizzaria possa
+    imprimir o ticket. Não precisa de login — é o mesmo pedido que o
+    cliente já vai mandar por WhatsApp de qualquer forma."""
+    body = request.get_json(silent=True) or {}
+    cart = body.get("items")
+    if not isinstance(cart, list) or not cart or len(cart) > MAX_ORDER_ITEMS:
+        return jsonify({"ok": False, "error": "Carrinho inválido."}), 400
+
+    order_items = []
+    total = 0.0
+    for entry in cart:
+        if not isinstance(entry, dict):
+            return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
+        try:
+            qty = int(entry.get("qty"))
+            unit_price = float(entry.get("unit_price"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
+        if qty <= 0 or qty > 500 or unit_price < 0:
+            return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
+        name = str(entry.get("name") or "")[:200]
+        order_items.append({"name": name, "qty": qty, "unit_price": round(unit_price, 2)})
+        total += unit_price * qty
+
+    if not order_items:
+        return jsonify({"ok": False, "error": "Carrinho vazio."}), 400
+
+    order = {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "customer_name": str(body.get("customer_name") or "")[:120],
+        "delivery_type": str(body.get("delivery_type") or "")[:60],
+        "address": str(body.get("address") or "")[:300],
+        "payment_method": str(body.get("payment_method") or "")[:60],
+        "notes": str(body.get("notes") or "")[:500],
+        "items": order_items,
+        "total": round(total, 2),
+    }
+    order_id = db.insert_order(order)
+    return jsonify({"ok": True, "order_id": order_id})
+
+
+@app.route("/api/pedidos/pendentes", methods=["GET"])
+@require_print_agent
+def pending_orders():
+    """Usado pelo programinha da impressora, que fica perguntando aqui
+    de tempos em tempos se chegou pedido novo."""
+    return jsonify({"ok": True, "orders": db.list_pending_orders()})
+
+
+@app.route("/api/pedidos/<int:order_id>/impresso", methods=["POST"])
+@require_print_agent
+def order_printed(order_id):
+    """O programinha avisa aqui depois de imprimir com sucesso, para o
+    pedido não ser impresso de novo."""
+    marked = db.mark_order_printed(order_id)
+    if not marked:
+        return jsonify({"ok": False, "error": "Pedido não encontrado ou já estava marcado como impresso."}), 404
+    return jsonify({"ok": True})
+
+
 # ---------- API do administrador ----------
 
 @app.route("/api/admin/data", methods=["GET"])
@@ -261,6 +343,17 @@ def update_data():
     # pela rota de funcionários (insert_sale), uma de cada vez.
     db.save_menu_data(new_data)
     return jsonify({"ok": True})
+
+
+@app.route("/api/admin/print-token/regenerate", methods=["POST"])
+@require_admin
+def regenerate_print_token():
+    """Gera um novo token para o agente de impressão. Depois de gerar,
+    é preciso atualizar esse mesmo valor no arquivo de configuração do
+    programinha que roda no computador da pizzaria (imprimir_agent.py)."""
+    token = secrets.token_hex(16)
+    db.set_print_agent_token(token)
+    return jsonify({"ok": True, "token": token})
 
 
 @app.route("/api/admin/sales", methods=["GET"])

@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS store (
     force_status INTEGER,
     delivery_time TEXT NOT NULL DEFAULT '',
     min_order REAL NOT NULL DEFAULT 0,
-    whatsapp_number TEXT NOT NULL DEFAULT ''
+    whatsapp_number TEXT NOT NULL DEFAULT '',
+    print_agent_token TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS today_post (
@@ -78,6 +79,20 @@ CREATE TABLE IF NOT EXISTS sales (
     items_json TEXT NOT NULL DEFAULT '[]',
     total REAL NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    customer_name TEXT NOT NULL DEFAULT '',
+    delivery_type TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    payment_method TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    items_json TEXT NOT NULL DEFAULT '[]',
+    total REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pendente',
+    printed_at TEXT
+);
 """
 
 
@@ -104,6 +119,9 @@ def init_db():
     if "whatsapp_number" not in existing_columns:
         conn.execute("ALTER TABLE store ADD COLUMN whatsapp_number TEXT NOT NULL DEFAULT ''")
         conn.commit()
+    if "print_agent_token" not in existing_columns:
+        conn.execute("ALTER TABLE store ADD COLUMN print_agent_token TEXT NOT NULL DEFAULT ''")
+        conn.commit()
 
     row = conn.execute("SELECT COUNT(*) AS c FROM store").fetchone()
     is_empty = row["c"] == 0
@@ -122,8 +140,8 @@ def _migrate_from_json():
     hours = store.get("hours", {})
     conn.execute(
         """INSERT OR REPLACE INTO store
-        (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number)
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number, print_agent_token)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             store.get("name", ""),
             store.get("logo", ""),
@@ -134,6 +152,7 @@ def _migrate_from_json():
             store.get("delivery_time", ""),
             float(store.get("min_order", 0) or 0),
             store.get("whatsapp_number", ""),
+            store.get("print_agent_token", ""),
         ),
     )
 
@@ -239,6 +258,7 @@ def load_data():
         "delivery_time": store_row["delivery_time"],
         "min_order": store_row["min_order"],
         "whatsapp_number": store_row["whatsapp_number"],
+        "print_agent_token": store_row["print_agent_token"],
     } if store_row else {}
 
     today_post = {
@@ -312,8 +332,8 @@ def save_menu_data(new_data):
         hours = store.get("hours", {})
         conn.execute(
             """INSERT OR REPLACE INTO store
-            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number, print_agent_token)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 store.get("name", ""),
                 store.get("logo", ""),
@@ -324,6 +344,7 @@ def save_menu_data(new_data):
                 store.get("delivery_time", ""),
                 float(store.get("min_order", 0) or 0),
                 store.get("whatsapp_number", ""),
+                store.get("print_agent_token", ""),
             ),
         )
 
@@ -404,5 +425,99 @@ def insert_sale(sale):
     except Exception:
         conn.rollback()
         raise
+    finally:
+        conn.close()
+
+
+# ---------- pedidos do cliente (fila de impressão) ----------
+#
+# Quando o cliente confirma o pedido no carrinho, o navegador manda o
+# pedido para cá (POST /api/pedidos) E abre o WhatsApp. O agente de
+# impressão que roda no computador da pizzaria (imprimir_agent.py) fica
+# perguntando pra cá "tem pedido novo?" (GET /api/pedidos/pendentes) a
+# cada poucos segundos, e quando acha um, manda pra impressora térmica
+# e avisa que já imprimiu (POST /api/pedidos/<id>/impresso).
+
+def insert_order(order):
+    """Grava um pedido novo do cliente, status inicial 'pendente'."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """INSERT INTO orders
+            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente')""",
+            (
+                order.get("created_at"),
+                order.get("customer_name", ""),
+                order.get("delivery_type", ""),
+                order.get("address", ""),
+                order.get("payment_method", ""),
+                order.get("notes", ""),
+                json.dumps(order.get("items", []), ensure_ascii=False),
+                float(order.get("total", 0) or 0),
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _order_row_to_dict(r):
+    return {
+        "id": r["id"],
+        "created_at": r["created_at"],
+        "customer_name": r["customer_name"],
+        "delivery_type": r["delivery_type"],
+        "address": r["address"],
+        "payment_method": r["payment_method"],
+        "notes": r["notes"],
+        "items": json.loads(r["items_json"]),
+        "total": r["total"],
+        "status": r["status"],
+        "printed_at": r["printed_at"],
+    }
+
+
+def list_pending_orders():
+    """Pedidos ainda não impressos, do mais antigo para o mais novo."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM orders WHERE status = 'pendente' ORDER BY id ASC"
+    ).fetchall()
+    conn.close()
+    return [_order_row_to_dict(r) for r in rows]
+
+
+def mark_order_printed(order_id):
+    """Marca um pedido como impresso. Devolve False se o id não existia
+    ou já estava marcado (evita reimprimir por engano)."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE orders SET status = 'impresso', printed_at = ? WHERE id = ? AND status = 'pendente'",
+            (datetime_now_iso(), order_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def datetime_now_iso():
+    from datetime import datetime
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def set_print_agent_token(token):
+    """Grava o token que o agente de impressão usa para se autenticar,
+    sem mexer no resto dos dados da loja."""
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE store SET print_agent_token = ? WHERE id = 1", (token,))
+        conn.commit()
     finally:
         conn.close()
