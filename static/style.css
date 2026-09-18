@@ -520,6 +520,64 @@ header.top {
   cursor: not-allowed;
 }
 
+/* Modo compacto: 1 sabor / meia a meia */
+.flavor-mode-options {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.flavor-mode-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper-warm);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.flavor-mode-btn.selected {
+  border-color: var(--ember);
+  background: color-mix(in srgb, var(--ember) 12%, white);
+  color: var(--ember-dark);
+  font-weight: 600;
+}
+
+.half-flavor-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.half-flavor-field label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.half-flavor-select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  font-size: 14px;
+  color: var(--ink);
+}
+
+@media (max-width: 480px) {
+  .half-flavor-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .product-actions {
   display: flex;
   gap: 10px;

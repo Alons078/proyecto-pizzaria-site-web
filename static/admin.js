@@ -408,14 +408,21 @@ function fillShiftList(shifts) {
     container.innerHTML = `<div class="empty-items">Nenhum turno cadastrado. Sem turnos, ninguém consegue entrar em /funcionarios.</div>`;
     return;
   }
-  container.innerHTML = shifts.map((shift) => `
+  container.innerHTML = shifts.map((shift) => {
+    const hasPw = shift.has_password || (shift.password && shift.password !== "" && shift.password !== "__unchanged__");
+    const placeholder = hasPw
+      ? "Deixe em branco para manter a senha atual"
+      : "Senha para este turno";
+    return `
     <div class="shift-admin-card" data-shift-id="${escapeHTML(shift.id)}">
       <div class="row">
         <div class="field"><label>Nome do turno</label><input type="text" class="shift-name" value="${escapeHTML(shift.name)}" placeholder="Ex.: Turno 1 (18h-19h)"></div>
-        <div class="field"><label>Senha do turno</label><input type="text" class="shift-password" value="${escapeHTML(shift.password)}" placeholder="Senha para este turno"></div>
+        <div class="field"><label>Senha do turno</label><input type="password" class="shift-password" value="" placeholder="${escapeHTML(placeholder)}" autocomplete="new-password"></div>
       </div>
+      <p class="field-hint" style="font-size:0.8rem;color:var(--ink-soft);margin:0 0 8px;">${hasPw ? "Senha já definida (não é possível visualizá-la). Preencha só se quiser trocar." : "Defina uma senha para este turno."}</p>
       <button type="button" class="delete-item-btn delete-shift-btn">Excluir turno</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 
   container.querySelectorAll(".delete-shift-btn").forEach((btn) => btn.addEventListener("click", () => removeShift(btn.closest(".shift-admin-card").dataset.shiftId)));
 }
@@ -601,8 +608,12 @@ function collectForm() {
     const name = card.querySelector(".shift-name").value.trim();
     const password = card.querySelector(".shift-password").value.trim();
     if (!name) throw new Error("Todos os turnos precisam ter um nome.");
-    if (!password) throw new Error(`O turno "${name}" precisa ter uma senha.`);
-    return { ...existing, name, password };
+    // Vacío = mantener la contraseña anterior (el servidor usa "__unchanged__")
+    const hasExisting = existing && (existing.has_password || (existing.password && existing.password !== ""));
+    if (!password && !hasExisting) {
+      throw new Error(`O turno "${name}" precisa ter uma senha.`);
+    }
+    return { ...existing, name, password: password || "__unchanged__" };
   });
 
   const pizza_sizes = [...document.querySelectorAll(".size-admin-card")].map((card) => {

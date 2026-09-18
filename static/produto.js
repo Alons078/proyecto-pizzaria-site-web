@@ -17,6 +17,10 @@ let currentSizes = [];
 let selectedSizeId = null;
 let currentAllItems = [];
 let selectedFlavorIds = [];
+/* mode: "one" = solo el sabor de la pizza; "half" = meia a meia (2 sabores) */
+let flavorMode = "one";
+let halfFlavor1Id = null; // primera mitad (puede ser el sabor actual u otro)
+let halfFlavor2Id = null; // segunda mitad
 let storeInfo = { whatsapp_number: "" };
 
 async function loadProduct() {
@@ -70,6 +74,12 @@ function currentSize() {
 
 function pizzaFlavorOptions() {
   if (!currentItem || currentItem.category !== "pizza") return [];
+  // Todas las pizzas (incluido el sabor actual) para poder elegir en meia a meia
+  return currentAllItems.filter((i) => i.category === "pizza");
+}
+
+function otherPizzaFlavors() {
+  if (!currentItem || currentItem.category !== "pizza") return [];
   return currentAllItems.filter((i) => i.category === "pizza" && i.id !== currentItem.id);
 }
 
@@ -90,22 +100,55 @@ function renderProduct(item) {
     </div>
   ` : "";
 
-  const flavorOptions = pizzaFlavorOptions();
-  const flavorsHTML = (flavorOptions.length && currentSizes.length) ? `
-    <div class="flavor-block">
-      <label>Sabores adicionais (opcional)</label>
-      <p class="flavor-hint" id="flavor-hint"></p>
-      <div class="flavor-options" id="flavor-options">
-        ${flavorOptions.map((flavor) => `
-          <label class="flavor-option" data-flavor-id="${flavor.id}">
-            <input type="checkbox" class="flavor-checkbox" value="${flavor.id}" ${selectedFlavorIds.includes(flavor.id) ? "checked" : ""}>
-            <span class="flavor-name">${escapeHTML(flavor.name)}</span>
-            ${Number(flavor.promo_extra || 0) > 0 ? `<span class="flavor-extra">+${cartFormatPrice(flavor.promo_extra)}</span>` : ""}
-          </label>
-        `).join("")}
+  const allFlavors = pizzaFlavorOptions();
+  const canHalf = allFlavors.length >= 2 && currentSizes.length && maxTotalFlavors(currentSize()) >= 2;
+
+  let flavorsHTML = "";
+  if (canHalf) {
+    const optionsHTML = (selectedId) => allFlavors.map((f) => {
+      const extra = Number(f.promo_extra || 0) > 0 && f.id !== currentItem.id
+        ? ` (+${cartFormatPrice(f.promo_extra)})` : "";
+      const selected = Number(selectedId) === Number(f.id) ? " selected" : "";
+      return `<option value="${f.id}"${selected}>${escapeHTML(f.name)}${extra}</option>`;
+    }).join("");
+
+    if (halfFlavor1Id == null) halfFlavor1Id = currentItem.id;
+    if (halfFlavor2Id == null && allFlavors.length) {
+      const other = allFlavors.find((f) => f.id !== currentItem.id);
+      halfFlavor2Id = other ? other.id : allFlavors[0].id;
+    }
+
+    flavorsHTML = `
+    <div class="flavor-block flavor-block-compact">
+      <label>Como quer a pizza?</label>
+      <div class="flavor-mode-options" id="flavor-mode-options">
+        <button type="button" class="flavor-mode-btn${flavorMode === "one" ? " selected" : ""}" data-mode="one">
+          1 sabor
+        </button>
+        <button type="button" class="flavor-mode-btn${flavorMode === "half" ? " selected" : ""}" data-mode="half">
+          Meia a meia (2 sabores)
+        </button>
+      </div>
+      <div id="half-flavor-panel" style="display:${flavorMode === "half" ? "block" : "none"};">
+        <p class="flavor-hint">Escolha o sabor de cada metade:</p>
+        <div class="half-flavor-row">
+          <div class="half-flavor-field">
+            <label>1ª metade</label>
+            <select id="half-flavor-1" class="half-flavor-select">
+              ${optionsHTML(halfFlavor1Id)}
+            </select>
+          </div>
+          <div class="half-flavor-field">
+            <label>2ª metade</label>
+            <select id="half-flavor-2" class="half-flavor-select">
+              ${optionsHTML(halfFlavor2Id)}
+            </select>
+          </div>
+        </div>
       </div>
     </div>
-  ` : "";
+  `;
+  }
 
   container.innerHTML = `
     <div class="product-image">
@@ -162,21 +205,33 @@ function renderProduct(item) {
     container.querySelectorAll(".size-option").forEach((btn) => {
       btn.addEventListener("click", () => {
         selectedSizeId = Number(btn.dataset.sizeId);
-        const newMax = maxTotalFlavors(currentSize());
-        if (selectedFlavorIds.length > newMax - 1) {
-          selectedFlavorIds = selectedFlavorIds.slice(0, Math.max(0, newMax - 1));
+        // Si el tamaño no permite 2 sabores, forzar modo 1 sabor
+        if (maxTotalFlavors(currentSize()) < 2) {
+          flavorMode = "one";
+          selectedFlavorIds = [];
         }
         renderProduct(currentItem);
       });
     });
   }
 
-  if (flavorOptions.length) {
-    container.querySelectorAll(".flavor-checkbox").forEach((cb) => {
-      cb.addEventListener("change", onFlavorChange);
+  // Modo 1 sabor / meia a meia
+  container.querySelectorAll(".flavor-mode-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      flavorMode = btn.dataset.mode;
+      if (flavorMode === "one") {
+        selectedFlavorIds = [];
+      } else {
+        syncHalfFromSelects();
+      }
+      renderProduct(currentItem);
     });
-    onFlavorChange();
-  }
+  });
+
+  const half1 = document.getElementById("half-flavor-1");
+  const half2 = document.getElementById("half-flavor-2");
+  if (half1) half1.addEventListener("change", onHalfFlavorChange);
+  if (half2) half2.addEventListener("change", onHalfFlavorChange);
 
   document.getElementById("qty-minus").addEventListener("click", () => updateQty(-1));
   document.getElementById("qty-plus").addEventListener("click", () => updateQty(1));
@@ -196,31 +251,22 @@ function renderProduct(item) {
   updatePriceDisplay();
 }
 
-/* Ajusta as caixinhas de sabor extra: quando o limite do tamanho já foi
- * atingido, desabilita as opções que ainda não foram marcadas, pra não
- * deixar escolher mais sabores do que o tamanho permite. */
-function onFlavorChange() {
-  const checkboxes = [...document.querySelectorAll(".flavor-checkbox")];
-  selectedFlavorIds = checkboxes.filter((cb) => cb.checked).map((cb) => Number(cb.value));
-
-  const max = maxTotalFlavors(currentSize());
-  const extraAllowed = Math.max(0, max - 1);
-  const limitReached = selectedFlavorIds.length >= extraAllowed;
-
-  checkboxes.forEach((cb) => {
-    const optionEl = cb.closest(".flavor-option");
-    const shouldDisable = !cb.checked && limitReached;
-    cb.disabled = shouldDisable;
-    if (optionEl) optionEl.classList.toggle("disabled", shouldDisable);
-  });
-
-  const hintEl = document.getElementById("flavor-hint");
-  if (hintEl) {
-    hintEl.textContent = extraAllowed > 0
-      ? `Escolha até ${extraAllowed} sabor${extraAllowed > 1 ? "es" : ""} a mais para este tamanho (${selectedFlavorIds.length}/${extraAllowed} escolhidos).`
-      : "Este tamanho não aceita sabores adicionais.";
+function syncHalfFromSelects() {
+  const half1 = document.getElementById("half-flavor-1");
+  const half2 = document.getElementById("half-flavor-2");
+  if (half1) halfFlavor1Id = Number(half1.value);
+  if (half2) halfFlavor2Id = Number(half2.value);
+  // selectedFlavorIds = sabores extra (los que no son el "principal" de la página)
+  selectedFlavorIds = [halfFlavor1Id, halfFlavor2Id]
+    .filter((id) => id != null && Number(id) !== Number(currentItem.id));
+  // Si ambas mitades son el mismo sabor que no es el actual, aún así contamos
+  if (halfFlavor1Id === halfFlavor2Id && Number(halfFlavor1Id) !== Number(currentItem.id)) {
+    selectedFlavorIds = [halfFlavor1Id];
   }
+}
 
+function onHalfFlavorChange() {
+  syncHalfFromSelects();
   updatePriceDisplay();
 }
 
@@ -232,14 +278,30 @@ function currentUnitPrice() {
   } else {
     price = Number(currentItem.price || 0);
   }
-  selectedFlavorIds.forEach((id) => {
-    const flavor = currentAllItems.find((i) => i.id === id);
-    if (flavor) price += Number(flavor.promo_extra || 0);
-  });
+  if (flavorMode === "half") {
+    // Cobrar extra de cada mitad que no sea el sabor "base" de la página
+    [halfFlavor1Id, halfFlavor2Id].forEach((id) => {
+      if (id == null || Number(id) === Number(currentItem.id)) return;
+      const flavor = currentAllItems.find((i) => Number(i.id) === Number(id));
+      if (flavor) price += Number(flavor.promo_extra || 0);
+    });
+  } else {
+    selectedFlavorIds.forEach((id) => {
+      const flavor = currentAllItems.find((i) => i.id === id);
+      if (flavor) price += Number(flavor.promo_extra || 0);
+    });
+  }
   return price;
 }
 
 function selectedFlavorItems() {
+  if (flavorMode === "half") {
+    const ids = [halfFlavor1Id, halfFlavor2Id].filter((id) => id != null);
+    const unique = [...new Set(ids.map(Number))];
+    return unique
+      .map((id) => currentAllItems.find((i) => Number(i.id) === id))
+      .filter(Boolean);
+  }
   return selectedFlavorIds
     .map((id) => currentAllItems.find((i) => i.id === id))
     .filter(Boolean);
@@ -247,9 +309,16 @@ function selectedFlavorItems() {
 
 function fullProductName() {
   const size = currentSize();
-  const baseName = size ? `${currentItem.name} (${size.name} ${size.cm}cm)` : currentItem.name;
-  const flavors = selectedFlavorItems();
-  return flavors.length ? `${baseName} + ${flavors.map((f) => f.name).join(", ")}` : baseName;
+  const sizePart = size ? ` (${size.name} ${size.cm}cm)` : "";
+  if (flavorMode === "half" && halfFlavor1Id != null && halfFlavor2Id != null) {
+    const f1 = currentAllItems.find((i) => Number(i.id) === Number(halfFlavor1Id));
+    const f2 = currentAllItems.find((i) => Number(i.id) === Number(halfFlavor2Id));
+    const n1 = f1 ? f1.name : currentItem.name;
+    const n2 = f2 ? f2.name : currentItem.name;
+    if (n1 === n2) return `${n1}${sizePart}`;
+    return `Meia ${n1} / Meia ${n2}${sizePart}`;
+  }
+  return `${currentItem.name}${sizePart}`;
 }
 
 function updateQty(delta) {
@@ -267,10 +336,14 @@ function updatePriceDisplay() {
 
 function addToCart() {
   const size = currentSize();
-  const flavors = selectedFlavorItems();
   const name = fullProductName();
-  const key = (size ? `item-${currentItem.id}-tam-${size.id}` : `item-${currentItem.id}`) +
-    (flavors.length ? `-sab-${[...selectedFlavorIds].sort((a, b) => a - b).join("-")}` : "");
+  let key = size ? `item-${currentItem.id}-tam-${size.id}` : `item-${currentItem.id}`;
+  if (flavorMode === "half") {
+    const ids = [halfFlavor1Id, halfFlavor2Id].map(Number).sort((a, b) => a - b);
+    key += `-meia-${ids.join("-")}`;
+  } else if (selectedFlavorIds.length) {
+    key += `-sab-${[...selectedFlavorIds].sort((a, b) => a - b).join("-")}`;
+  }
 
   cartAdd({
     key,
