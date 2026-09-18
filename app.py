@@ -229,7 +229,11 @@ def get_item(item_id):
         "ok": True,
         "item": item,
         "pizza_sizes": data["pizza_sizes"] if item.get("category") == "pizza" else [],
-        "store": {"whatsapp_number": data["store"].get("whatsapp_number", "")},
+        "store": {
+            "whatsapp_number": data["store"].get("whatsapp_number", ""),
+            "borda_catupiry_price": data["store"].get("borda_catupiry_price", 10.0),
+            "borda_cheddar_price": data["store"].get("borda_cheddar_price", 10.0),
+        },
     })
 
 
@@ -244,7 +248,11 @@ def get_promotion(promo_id):
         "ok": True,
         "promotion": promo,
         "items": data["items"],
-        "store": {"whatsapp_number": data["store"].get("whatsapp_number", "")},
+        "store": {
+            "whatsapp_number": data["store"].get("whatsapp_number", ""),
+            "borda_catupiry_price": data["store"].get("borda_catupiry_price", 10.0),
+            "borda_cheddar_price": data["store"].get("borda_cheddar_price", 10.0),
+        },
     })
 
 
