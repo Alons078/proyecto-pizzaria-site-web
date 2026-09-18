@@ -349,6 +349,62 @@ header.top {
 
 .qty-control button:active { transform: scale(0.94); }
 
+.size-control {
+  margin-bottom: 22px;
+}
+
+.size-control > label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+
+.size-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.size-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-warm);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-body);
+  text-align: center;
+}
+
+.size-option .size-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.size-option .size-cm {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.size-option .size-price {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ember-dark);
+}
+
+.size-option.selected {
+  border-color: var(--ember-dark);
+  background: rgba(255, 176, 32, 0.12);
+}
+
 .qty-value {
   font-family: var(--font-mono);
   font-size: 18px;
@@ -518,6 +574,18 @@ header.top {
   color: var(--ink);
   font-family: var(--font-body);
   font-size: 14px;
+}
+
+.troco-result {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ember-dark);
+  min-height: 16px;
+}
+
+.troco-result.troco-warning {
+  color: var(--tomato);
 }
 
 footer.foot {
@@ -1147,6 +1215,14 @@ footer.foot {
 }
 
 .shift-admin-card:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+
+.size-admin-card {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.size-admin-card:first-child { border-top: none; margin-top: 0; padding-top: 0; }
 
 /* ---------- vendas ---------- */
 .sales-stats {

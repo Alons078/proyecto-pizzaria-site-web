@@ -182,6 +182,7 @@ def get_data():
         "today_post": data["today_post"],
         "items": data["items"],
         "promotions": data["promotions"],
+        "pizza_sizes": data["pizza_sizes"],
     }
     return jsonify(public)
 
@@ -196,6 +197,7 @@ def get_item(item_id):
     return jsonify({
         "ok": True,
         "item": item,
+        "pizza_sizes": data["pizza_sizes"] if item.get("category") == "pizza" else [],
         "store": {"whatsapp_number": data["store"].get("whatsapp_number", "")},
     })
 
@@ -250,15 +252,35 @@ def create_order():
     if not order_items:
         return jsonify({"ok": False, "error": "Carrinho vazio."}), 400
 
+    payment_method = str(body.get("payment_method") or "")[:60]
+
+    troco_paid_with = None
+    troco_amount = None
+    raw_troco = body.get("troco_paid_with")
+    if raw_troco is not None and payment_method == "Dinheiro":
+        try:
+            troco_paid_with = round(float(raw_troco), 2)
+        except (TypeError, ValueError):
+            troco_paid_with = None
+        # Se o valor não cobre o total do pedido, não faz sentido como
+        # "troco para" — trata como se não tivesse sido informado, em vez
+        # de guardar um troco inválido (ex.: negativo).
+        if troco_paid_with is not None and troco_paid_with < total:
+            troco_paid_with = None
+        if troco_paid_with is not None:
+            troco_amount = round(troco_paid_with - total, 2)
+
     order = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "customer_name": str(body.get("customer_name") or "")[:120],
         "delivery_type": str(body.get("delivery_type") or "")[:60],
         "address": str(body.get("address") or "")[:300],
-        "payment_method": str(body.get("payment_method") or "")[:60],
+        "payment_method": payment_method,
         "notes": str(body.get("notes") or "")[:500],
         "items": order_items,
         "total": round(total, 2),
+        "troco_paid_with": troco_paid_with,
+        "troco_amount": troco_amount,
     }
     order_id = db.insert_order(order)
     return jsonify({"ok": True, "order_id": order_id})
@@ -296,6 +318,7 @@ def get_admin_data():
         "items": data["items"],
         "promotions": data["promotions"],
         "shifts": data["shifts"],
+        "pizza_sizes": data["pizza_sizes"],
     }
     return jsonify(admin_view)
 
@@ -317,6 +340,18 @@ def update_data():
 
     if "shifts" not in new_data or not isinstance(new_data["shifts"], list):
         new_data["shifts"] = []
+
+    if "pizza_sizes" not in new_data or not isinstance(new_data["pizza_sizes"], list):
+        new_data["pizza_sizes"] = []
+
+    for size in new_data["pizza_sizes"]:
+        if not isinstance(size, dict) or not str(size.get("name") or "").strip():
+            return jsonify({"ok": False, "error": "Existe um tamanho de pizza sem nome."}), 400
+        try:
+            float(size.get("price", 0))
+            int(size.get("cm", 0) or 0)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": f'O tamanho "{size.get("name")}" tem preço ou centímetros inválidos.'}), 400
 
     for item in new_data["items"]:
         item.setdefault("promo_extra", 0)

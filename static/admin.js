@@ -8,6 +8,7 @@ async function loadData() {
     currentData = await res.json();
     currentData.promotions = Array.isArray(currentData.promotions) ? currentData.promotions : [];
     currentData.shifts = Array.isArray(currentData.shifts) ? currentData.shifts : [];
+    currentData.pizza_sizes = Array.isArray(currentData.pizza_sizes) ? currentData.pizza_sizes : [];
     fillForm(currentData);
   } catch (error) {
     console.error(error);
@@ -40,6 +41,7 @@ function fillForm(data) {
   document.getElementById("post-text").value = today_post.text;
   fillPromoList(data.promotions, items);
   fillShiftList(data.shifts);
+  fillSizeList(data.pizza_sizes || []);
   fillItemList("pizzas-list", items.filter((i) => i.category === "pizza"));
   fillItemList("salgados-list", items.filter((i) => i.category === "salgado"));
   fillItemList("bebidas-list", items.filter((i) => i.category === "bebida"));
@@ -435,6 +437,44 @@ function removeShift(id) {
   fillForm(currentData);
 }
 
+function fillSizeList(sizes) {
+  const container = document.getElementById("sizes-list");
+  if (!sizes.length) {
+    container.innerHTML = `<div class="empty-items">Nenhum tamanho cadastrado. Sem tamanhos, as pizzas ficam com preço único.</div>`;
+    return;
+  }
+  container.innerHTML = sizes.map((size) => `
+    <div class="size-admin-card" data-size-id="${escapeHTML(size.id)}">
+      <div class="row">
+        <div class="field"><label>Nome</label><input type="text" class="size-name" value="${escapeHTML(size.name)}" placeholder="Ex.: Broto"></div>
+        <div class="field"><label>Centímetros</label><input type="number" min="0" class="size-cm" value="${escapeHTML(size.cm)}" placeholder="Ex.: 25"></div>
+        <div class="field"><label>Preço (R$)</label><input type="number" min="0" step="0.5" class="size-price" value="${escapeHTML(size.price)}" placeholder="Ex.: 20"></div>
+      </div>
+      <button type="button" class="delete-item-btn delete-size-btn">Excluir tamanho</button>
+    </div>`).join("");
+
+  container.querySelectorAll(".delete-size-btn").forEach((btn) => btn.addEventListener("click", () => removeSize(btn.closest(".size-admin-card").dataset.sizeId)));
+}
+
+function addSize() {
+  const sizes = currentData.pizza_sizes || [];
+  const ids = sizes.map((s) => Number(s.id)).filter(Number.isFinite);
+  const nextId = ids.length ? Math.max(...ids) + 1 : 1;
+  sizes.push({ id: nextId, name: "Novo tamanho", cm: 0, price: 0 });
+  currentData.pizza_sizes = sizes;
+  fillForm(currentData);
+  const card = document.querySelector(`.size-admin-card[data-size-id="${nextId}"]`);
+  card?.scrollIntoView({ behavior: "smooth", block: "center" });
+  card?.querySelector(".size-name")?.focus();
+}
+
+function removeSize(id) {
+  const size = (currentData.pizza_sizes || []).find((s) => String(s.id) === String(id));
+  if (!size || !window.confirm(`Excluir o tamanho "${size.name}"? Ele deixará de aparecer na página das pizzas.`)) return;
+  currentData.pizza_sizes = currentData.pizza_sizes.filter((s) => String(s.id) !== String(id));
+  fillForm(currentData);
+}
+
 function formatPrice(value) {
   return `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
 }
@@ -528,6 +568,7 @@ document.querySelectorAll(".status-toggle button").forEach((btn) => btn.addEvent
 document.querySelectorAll(".add-item-btn[data-category]").forEach((button) => button.addEventListener("click", () => addItem(button.dataset.category)));
 document.querySelector(".add-promo-btn")?.addEventListener("click", addPromotion);
 document.querySelector(".add-shift-btn")?.addEventListener("click", addShift);
+document.getElementById("add-size-btn")?.addEventListener("click", addSize);
 document.getElementById("store-logo-file").addEventListener("change", async function () {
   await handleSingleImageUpload(this, (url) => { currentData.store.logo = url; }, "store-logo-preview", 1, "image/png");
 });
@@ -564,12 +605,20 @@ function collectForm() {
     return { ...existing, name, password };
   });
 
+  const pizza_sizes = [...document.querySelectorAll(".size-admin-card")].map((card) => {
+    const existing = (currentData.pizza_sizes || []).find((s) => String(s.id) === String(card.dataset.sizeId));
+    const name = card.querySelector(".size-name").value.trim();
+    if (!name) throw new Error("Todos os tamanhos de pizza precisam ter um nome.");
+    return { ...existing, name, cm: parseInt(card.querySelector(".size-cm").value, 10) || 0, price: parseFloat(card.querySelector(".size-price").value) || 0 };
+  });
+
   return {
     store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, whatsapp_number: document.getElementById("store-whatsapp").value.trim(), logo: currentData.store.logo || "" },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
     promotions,
-    shifts
+    shifts,
+    pizza_sizes
   };
 }
 

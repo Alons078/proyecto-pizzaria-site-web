@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS shifts (
     password TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pizza_sizes (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    cm INTEGER NOT NULL DEFAULT 0,
+    price REAL NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shift_id INTEGER,
@@ -91,7 +99,9 @@ CREATE TABLE IF NOT EXISTS orders (
     items_json TEXT NOT NULL DEFAULT '[]',
     total REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pendente',
-    printed_at TEXT
+    printed_at TEXT,
+    troco_paid_with REAL,
+    troco_amount REAL
 );
 """
 
@@ -123,12 +133,56 @@ def init_db():
         conn.execute("ALTER TABLE store ADD COLUMN print_agent_token TEXT NOT NULL DEFAULT ''")
         conn.commit()
 
+    # Troco (vuelto): colunas novas na tabela orders, para bancos criados
+    # antes desse recurso existir.
+    existing_order_columns = [r["name"] for r in conn.execute("PRAGMA table_info(orders)").fetchall()]
+    if "troco_paid_with" not in existing_order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN troco_paid_with REAL")
+        conn.commit()
+    if "troco_amount" not in existing_order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN troco_amount REAL")
+        conn.commit()
+
     row = conn.execute("SELECT COUNT(*) AS c FROM store").fetchone()
     is_empty = row["c"] == 0
+
+    # Tamanhos de pizza: se ainda não existe nenhum (banco novo, ou banco
+    # de uma versão anterior a esse recurso), cria os padrões da Rey
+    # Pizzaria. O admin pode depois editar os preços e nomes.
+    sizes_count = conn.execute("SELECT COUNT(*) AS c FROM pizza_sizes").fetchone()["c"]
+    if sizes_count == 0:
+        conn.executemany(
+            "INSERT INTO pizza_sizes (id, name, cm, price, sort_order) VALUES (?, ?, ?, ?, ?)",
+            [
+                (1, "Broto", 25, 20.0, 1),
+                (2, "Média", 30, 30.0, 2),
+                (3, "Grande", 40, 40.0, 3),
+                (4, "Família", 45, 50.0, 4),
+            ],
+        )
+        conn.commit()
+
     conn.close()
 
     if is_empty and os.path.exists(OLD_JSON_PATH):
         _migrate_from_json()
+    elif is_empty:
+        # Sem data.json para migrar (banco novo, ou o arquivo já foi
+        # migrado antes e renomeado para data.json.migrado): garante que
+        # sempre exista uma linha padrão em `store` e em `today_post`,
+        # senão load_data() devolve {} pra elas e o site quebra ao
+        # checar se está aberto (store) ou ao mostrar o post do dia.
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR IGNORE INTO store
+            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number, print_agent_token)
+            VALUES (1, '', '', '', '18:00', '20:00', NULL, '', 0, '', '')"""
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO today_post (id, title, text, image) VALUES (1, '', '', '')"
+        )
+        conn.commit()
+        conn.close()
 
 
 def _migrate_from_json():
@@ -247,6 +301,7 @@ def load_data():
     promo_rows = conn.execute("SELECT * FROM promotions ORDER BY id").fetchall()
     shift_rows = conn.execute("SELECT * FROM shifts ORDER BY id").fetchall()
     sale_rows = conn.execute("SELECT * FROM sales ORDER BY id").fetchall()
+    size_rows = conn.execute("SELECT * FROM pizza_sizes ORDER BY sort_order, id").fetchall()
     conn.close()
 
     store = {
@@ -310,6 +365,11 @@ def load_data():
         for r in sale_rows
     ]
 
+    pizza_sizes = [
+        {"id": r["id"], "name": r["name"], "cm": r["cm"], "price": r["price"]}
+        for r in size_rows
+    ]
+
     return {
         "store": store,
         "today_post": today_post,
@@ -317,6 +377,7 @@ def load_data():
         "promotions": promotions,
         "shifts": shifts,
         "sales": sales,
+        "pizza_sizes": pizza_sizes,
     }
 
 
@@ -393,6 +454,20 @@ def save_menu_data(new_data):
                 (int(shift["id"]), shift.get("name", ""), shift.get("password", "")),
             )
 
+        if "pizza_sizes" in new_data:
+            conn.execute("DELETE FROM pizza_sizes")
+            for order, size in enumerate(new_data.get("pizza_sizes", [])):
+                conn.execute(
+                    "INSERT INTO pizza_sizes (id, name, cm, price, sort_order) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        int(size["id"]),
+                        size.get("name", ""),
+                        int(size.get("cm", 0) or 0),
+                        float(size.get("price", 0) or 0),
+                        order,
+                    ),
+                )
+
         conn.commit()
     except Exception:
         conn.rollback()
@@ -444,8 +519,8 @@ def insert_order(order):
     try:
         cursor = conn.execute(
             """INSERT INTO orders
-            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente')""",
+            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status, troco_paid_with, troco_amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?)""",
             (
                 order.get("created_at"),
                 order.get("customer_name", ""),
@@ -455,6 +530,8 @@ def insert_order(order):
                 order.get("notes", ""),
                 json.dumps(order.get("items", []), ensure_ascii=False),
                 float(order.get("total", 0) or 0),
+                order.get("troco_paid_with"),
+                order.get("troco_amount"),
             ),
         )
         conn.commit()
@@ -479,6 +556,8 @@ def _order_row_to_dict(r):
         "total": r["total"],
         "status": r["status"],
         "printed_at": r["printed_at"],
+        "troco_paid_with": r["troco_paid_with"],
+        "troco_amount": r["troco_amount"],
     }
 
 

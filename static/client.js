@@ -53,9 +53,9 @@ function render(data) {
 
   fillInfoBar(store);
   fillPromoBanner(data.promotions || []);
-  fillMaisPedidos(items);
+  fillMaisPedidos(items, data.pizza_sizes || []);
   fillPromotions(data.promotions || [], items);
-  fillGrid("pizzas-grid", items.filter((i) => i.category === "pizza"));
+  fillGrid("pizzas-grid", items.filter((i) => i.category === "pizza"), data.pizza_sizes || []);
   fillGrid("salgados-grid", items.filter((i) => i.category === "salgado"));
   fillGrid("bebidas-grid", items.filter((i) => i.category === "bebida"));
 
@@ -96,7 +96,7 @@ function fillPromoBanner(promotions) {
   banner.style.display = "block";
 }
 
-function fillMaisPedidos(items) {
+function fillMaisPedidos(items, pizzaSizes) {
   const section = document.getElementById("mais-pedidos-section");
   const row = document.getElementById("mais-pedidos-row");
   if (!section || !row) return;
@@ -115,10 +115,23 @@ function fillMaisPedidos(items) {
         ${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>foto</span>`}
       </div>
       <div class="name">${escapeHTML(item.name)}</div>
-      <div class="price">${formatPrice(item.price)}</div>
+      <div class="price">${itemPriceLabel(item, pizzaSizes)}</div>
     </a>`).join("");
 
   setupScrollReveal();
+}
+
+function cheapestPizzaPrice(pizzaSizes) {
+  if (!pizzaSizes || !pizzaSizes.length) return null;
+  return Math.min(...pizzaSizes.map((s) => Number(s.price || 0)));
+}
+
+function itemPriceLabel(item, pizzaSizes) {
+  if (item.category === "pizza") {
+    const cheapest = cheapestPizzaPrice(pizzaSizes);
+    if (cheapest !== null) return `A partir de ${formatPrice(cheapest)}`;
+  }
+  return formatPrice(item.price);
 }
 
 let revealObserver = null;
@@ -142,7 +155,7 @@ function setupScrollReveal() {
   });
 }
 
-function fillGrid(elementId, list) {
+function fillGrid(elementId, list, pizzaSizes) {
   const grid = document.getElementById(elementId);
 
   grid.innerHTML = list
@@ -162,7 +175,7 @@ function fillGrid(elementId, list) {
           ? `<div class="description">${escapeHTML(item.description)}</div>`
           : ""
       }
-      <div class="price">R$ ${Number(item.price || 0).toFixed(2)}</div>
+      <div class="price">${itemPriceLabel(item, pizzaSizes)}</div>
       <span class="card-cta">Ver e pedir →</span>
     </a>`
     )
