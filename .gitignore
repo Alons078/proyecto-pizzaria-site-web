@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+pizzaria.db
+pizzaria.db-wal
+pizzaria.db-shm
+data.json.migrado

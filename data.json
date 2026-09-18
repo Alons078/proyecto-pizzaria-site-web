@@ -72,6 +72,132 @@
       "name": "Suco de Laranja",
       "price": 7,
       "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 10,
+      "image": "",
+      "name": "Pizza Mussarela",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 11,
+      "image": "",
+      "name": "Pizza Atum",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 12,
+      "image": "",
+      "name": "Pizza Sardinha",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 13,
+      "image": "",
+      "name": "Pizza Banana com Canela",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 14,
+      "image": "",
+      "name": "Pizza Kids",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 15,
+      "image": "",
+      "name": "Pizza Chocolate",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 16,
+      "image": "",
+      "name": "Pizza 4 Queijos",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 17,
+      "image": "",
+      "name": "Pizza Portuguesa",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 18,
+      "image": "",
+      "name": "Pizza Mista",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 19,
+      "image": "",
+      "name": "Pizza Doce de Leite",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 20,
+      "image": "",
+      "name": "Pizza Frango com Catupiry",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 21,
+      "image": "",
+      "name": "Pizza Moda da Casa",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 22,
+      "image": "",
+      "name": "Pizza Carne Seca",
+      "price": 20,
+      "promo_extra": 0
+    },
+    {
+      "category": "pizza",
+      "description": "",
+      "id": 23,
+      "image": "",
+      "name": "Pizza Bacon com Ovos",
+      "price": 20,
+      "promo_extra": 0
     }
   ],
   "promotions": [
