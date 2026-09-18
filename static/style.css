@@ -592,6 +592,39 @@ footer.foot {
 
 .field textarea { min-height: 80px; resize: vertical; }
 
+.field-hint {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: 2px 0 0;
+  line-height: 1.4;
+}
+
+.print-token-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.print-token-row input {
+  flex: 1;
+  min-width: 200px;
+  font-family: var(--font-mono);
+}
+
+.print-token-row button {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.print-token-row button:hover { border-color: var(--ember-dark); }
+
 .row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

@@ -157,10 +157,32 @@ function sendToWhatsApp(cart, total) {
   message += `Pagamento: ${payment}\n`;
   if (notes) message += `Observações: ${notes}\n`;
 
+  /* Manda o pedido para o servidor (para o agente de impressão térmica
+   * pegar), mas sem travar o cliente: mesmo que isso falhe (sem
+   * internet no momento, servidor fora do ar), o pedido continua indo
+   * pelo WhatsApp normalmente — só não vai sair impresso sozinho. */
+  registrarPedidoParaImpressao(cart, total, { name, delivery, address, payment, notes });
+
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");
   cartClear();
   renderCart();
+}
+
+function registrarPedidoParaImpressao(cart, total, checkout) {
+  const payload = {
+    items: cart.map((line) => ({ name: line.name, qty: line.qty, unit_price: line.unit_price })),
+    customer_name: checkout.name,
+    delivery_type: checkout.delivery,
+    address: checkout.address,
+    payment_method: checkout.payment,
+    notes: checkout.notes,
+  };
+  fetch("/api/pedidos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch((error) => console.error("Não foi possível registrar o pedido para impressão:", error));
 }
 
 loadStoreInfo().then(renderCart);

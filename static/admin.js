@@ -32,6 +32,7 @@ function fillForm(data) {
   document.getElementById("store-delivery-time").value = store.delivery_time || "";
   document.getElementById("store-min-order").value = store.min_order || "";
   document.getElementById("store-whatsapp").value = store.whatsapp_number || "";
+  document.getElementById("store-print-token").value = store.print_agent_token || "";
   setImagePreview("store-logo-preview", store.logo);
   setImagePreview("post-image-preview", today_post.image);
   setStatusButton(store.force_status);
@@ -588,6 +589,35 @@ function showToast(message = "Alterações salvas") {
   toast.classList.add("show");
   setTimeout(() => toast.classList.remove("show"), 2500);
 }
+
+document.getElementById("print-token-copy-btn").addEventListener("click", async () => {
+  const input = document.getElementById("store-print-token");
+  if (!input.value) { showToast("Gere um token primeiro"); return; }
+  try {
+    await navigator.clipboard.writeText(input.value);
+    showToast("Token copiado");
+  } catch (error) {
+    input.select();
+    showToast("Selecione e copie manualmente (Ctrl+C)");
+  }
+});
+
+document.getElementById("print-token-regenerate-btn").addEventListener("click", async () => {
+  if (document.getElementById("store-print-token").value) {
+    const confirmado = confirm("Isso invalida o token atual. O computador da pizzaria vai parar de imprimir até você colocar o novo token nele. Continuar?");
+    if (!confirmado) return;
+  }
+  try {
+    const res = await fetch("/api/admin/print-token/regenerate", { method: "POST" });
+    if (!res.ok) throw new Error("Não foi possível gerar o token.");
+    const result = await res.json();
+    document.getElementById("store-print-token").value = result.token;
+    if (currentData) currentData.store.print_agent_token = result.token;
+    showToast("Novo token gerado — copie para o agente de impressão");
+  } catch (error) {
+    showToast(error.message || "Erro ao gerar token");
+  }
+});
 
 setupCropper();
 loadData();
