@@ -1,18 +1,5 @@
 """
 Banco de dados SQLite da Rey Pizzaria.
-
-Substitui o antigo data.json. Continua entregando os mesmos dicionários
-Python que o app.py já sabe usar, então o resto do código quase não muda.
-
-Diferença importante em relação ao JSON:
-- Registrar uma venda agora é UM INSERT numa linha da tabela `sales`,
-  não uma reescrita do arquivo inteiro. Isso é o que evita que duas vendas
-  ao mesmo tempo se atropelem ou corrompam os dados.
-- O SQLite cuida sozinho de travar a escrita quando duas requisições
-  chegam ao mesmo tempo (uma espera meio milissegundo pela outra, em vez
-  de corromper o arquivo).
-
-O arquivo do banco (pizzaria.db) fica na mesma pasta do projeto.
 """
 
 import sqlite3
