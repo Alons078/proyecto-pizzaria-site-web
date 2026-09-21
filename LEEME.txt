@@ -4,11 +4,11 @@ Cómo correrlo en tu computadora:
 1. Necesitas Python instalado. Instala las dependencias:
    pip install -r requirements.txt --break-system-packages
 2. Abre una terminal DENTRO de esta carpeta (rey-pizzaria).
-3. (Opcional pero recomendado) define una contraseña de administrador:
+3. Define una contraseña de administrador (OBLIGATORIO para entrar a /admin):
    - Mac/Linux: export ADMIN_PASSWORD="la-clave-que-quieras"
    - Windows (cmd):  set ADMIN_PASSWORD=la-clave-que-quieras
-   Si no la defines, se usa la clave por defecto "admin123" — sirve
-   para probar en tu compu, pero NO la dejes así en Render.
+   Si no la defines, el panel /admin queda bloqueado (nadie puede entrar).
+   En Render se define en Environment con el nombre ADMIN_PASSWORD.
 4. Ejecuta: python3 app.py
 5. En el navegador abre:
    - http://127.0.0.1:5000/               -> vista del cliente (blog)
@@ -159,3 +159,26 @@ Notas importantes:
   imprime (por ejemplo, la computadora de la pizzería estaba
   apagada), el mensaje de WhatsApp sigue llegando igual: la
   impresión es un extra, no el único aviso del pedido.
+
+
+TAXA DE ENTREGA AUTOMÁTICA (por distância):
+Ao escolher "Entrega (delivery)", o cliente digita o endereço e toca em
+"Calcular taxa de entrega". O servidor geocodifica o endereço no Nominatim
+(OpenStreetMap, grátis), calcula a distância em linha reta até a pizzaria
+e aplica a regra: até FEE_RADIUS_KM = FEE_BASE; acima = FEE_EXTRA; acima de
+MAX_DELIVERY_KM = fora da área (a pizzaria combina pelo WhatsApp).
+Cada endereço só vai UMA vez ao Nominatim: depois fica na tabela
+geocoded_addresses (cache). Se a geocodificação falhar, o pedido segue
+normalmente com "taxa a combinar".
+
+Variáveis de ambiente no Render:
+- PIZZERIA_LAT, PIZZERIA_LON  (OBRIGATÓRIAS) coordenadas da pizzaria.
+    Google Maps -> clique direito no ponto da loja -> copie os dois números.
+- FEE_RADIUS_KM (3), FEE_BASE (5.00), FEE_EXTRA (8.00), MAX_DELIVERY_KM (10)
+    -> combinar os valores em R$ com o dono.
+- GEOCODE_CONTEXT ("Rio de Janeiro, RJ, Brasil") e NOMINATIM_USER_AGENT
+    (ex.: "Rey-Pizzaria/1.0 (seu-email@dominio.com)").
+O Procfile agora usa "--workers 1 --threads 4": a fila de 1 req/s vive na
+memória de UM processo. Não aumente --workers sem mudar essa parte.
+
+Testes: python -m unittest tests.test_geocoding -v

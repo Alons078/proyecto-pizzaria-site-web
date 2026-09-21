@@ -12,10 +12,12 @@ As imagens enviadas pelo administrador são armazenadas em:
 static/uploads/
 
 Variáveis de ambiente usadas em produção (configure-as no Render):
-- ADMIN_PASSWORD  -> senha do painel /admin (padrão inseguro: "admin123")
+- ADMIN_PASSWORD  -> senha do painel /admin (OBRIGATÓRIA: sem ela o painel fica bloqueado)
 - SECRET_KEY      -> chave para assinar os cookies de sessão
 - PORT            -> porta em que o servidor escuta (o Render define sozinho)
 - FLASK_DEBUG     -> "1" para ligar o modo debug (deixe desligado em produção)
+- PIZZERIA_LAT, PIZZERIA_LON -> coordenadas da pizzaria (taxa de entrega automática)
+- FEE_RADIUS_KM, FEE_BASE, FEE_EXTRA, MAX_DELIVERY_KM -> regra da taxa (veja geocoding.py)
 """
 
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
@@ -29,6 +31,7 @@ import hmac
 import secrets
 
 import db
+import geocoding
 
 
 def _is_password_hash(value):
@@ -72,15 +75,19 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 
-ADMIN_PASSWORD = os.environ.get(contra)
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(16))
 
-if not os.environ.get("ADMIN_PASSWORD"):
+if not ADMIN_PASSWORD:
     print("AVISO: a variável de ambiente ADMIN_PASSWORD não foi definida — "
-          "usando a senha padrão 'admin123'. Defina ADMIN_PASSWORD no Render antes de divulgar o site.")
+          "o painel /admin ficará bloqueado. Defina ADMIN_PASSWORD no Render.")
 if not os.environ.get("SECRET_KEY"):
     print("AVISO: a variável de ambiente SECRET_KEY não foi definida — "
           "as sessões (login) serão invalidadas sempre que o servidor reiniciar.")
+
+if not geocoding.is_configured():
+    print("AVISO: PIZZERIA_LAT / PIZZERIA_LON não definidos — a taxa de entrega "
+          "automática fica desligada (o pedido segue com 'taxa a combinar').")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -155,7 +162,7 @@ def admin_login():
 @app.route("/admin/login", methods=["POST"])
 def admin_login_submit():
     password = (request.form.get("password") or "").strip()
-    if password and hmac.compare_digest(password, ADMIN_PASSWORD):
+    if ADMIN_PASSWORD and password and hmac.compare_digest(password, ADMIN_PASSWORD):
         session["is_admin"] = True
         return redirect(url_for("admin"))
     return render_template("admin_login.html", error="Senha incorreta."), 401
@@ -256,6 +263,23 @@ def get_promotion(promo_id):
     })
 
 
+# ---------- taxa de entrega por distância ----------
+
+@app.route("/api/calcular-tarifa", methods=["POST"])
+def calcular_tarifa():
+    """Recebe {address} e devolve {fee, distance_km, cached}. Endereços já
+    consultados saem do cache; os novos passam pela fila do Nominatim (1 req/s)
+    e por isso podem levar alguns segundos."""
+    body = request.get_json(silent=True) or {}
+    try:
+        result = geocoding.calculate_fee(body.get("address"))
+    except geocoding.GeocodingError as exc:
+        payload = {"ok": False, "code": exc.code, "error": exc.message}
+        payload.update(exc.extra)
+        return jsonify(payload), exc.status
+    return jsonify({"ok": True, **result})
+
+
 # ---------- pedidos do cliente (fila de impressão térmica) ----------
 
 MAX_ORDER_ITEMS = 40
@@ -291,6 +315,19 @@ def create_order():
     if not order_items:
         return jsonify({"ok": False, "error": "Carrinho vazio."}), 400
 
+    delivery_type = str(body.get("delivery_type") or "")[:60]
+    address = str(body.get("address") or "")[:300]
+
+    # Taxa de entrega: o servidor a busca no cache de geocodificação (que o
+    # próprio cliente acabou de preencher ao calcular a taxa). Não aceitamos
+    # o valor vindo do navegador, senão qualquer um mandaria taxa = 0.
+    # Sem taxa em cache -> None ("a combinar" pelo WhatsApp).
+    delivery_fee = None
+    if delivery_type == "Entrega (delivery)":
+        delivery_fee = geocoding.lookup_cached_fee(address)
+        if delivery_fee is not None:
+            total += delivery_fee
+
     payment_method = str(body.get("payment_method") or "")[:60]
 
     troco_paid_with = None
@@ -312,14 +349,15 @@ def create_order():
     order = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "customer_name": str(body.get("customer_name") or "")[:120],
-        "delivery_type": str(body.get("delivery_type") or "")[:60],
-        "address": str(body.get("address") or "")[:300],
+        "delivery_type": delivery_type,
+        "address": address,
         "payment_method": payment_method,
         "notes": str(body.get("notes") or "")[:500],
         "items": order_items,
         "total": round(total, 2),
         "troco_paid_with": troco_paid_with,
         "troco_amount": troco_amount,
+        "delivery_fee": delivery_fee,
     }
     order_id = db.insert_order(order)
     return jsonify({"ok": True, "order_id": order_id})

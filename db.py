@@ -1,5 +1,18 @@
 """
 Banco de dados SQLite da Rey Pizzaria.
+
+Substitui o antigo data.json. Continua entregando os mesmos dicionários
+Python que o app.py já sabe usar, então o resto do código quase não muda.
+
+Diferença importante em relação ao JSON:
+- Registrar uma venda agora é UM INSERT numa linha da tabela `sales`,
+  não uma reescrita do arquivo inteiro. Isso é o que evita que duas vendas
+  ao mesmo tempo se atropelem ou corrompam os dados.
+- O SQLite cuida sozinho de travar a escrita quando duas requisições
+  chegam ao mesmo tempo (uma espera meio milissegundo pela outra, em vez
+  de corromper o arquivo).
+
+O arquivo do banco (pizzaria.db) fica na mesma pasta do projeto.
 """
 
 import sqlite3
@@ -88,7 +101,21 @@ CREATE TABLE IF NOT EXISTS orders (
     status TEXT NOT NULL DEFAULT 'pendente',
     printed_at TEXT,
     troco_paid_with REAL,
-    troco_amount REAL
+    troco_amount REAL,
+    delivery_fee REAL
+);
+
+-- Cache de geocodificação: cada endereço só vai UMA vez ao Nominatim.
+-- lat/lon/distance_km são fatos do endereço; delivery_fee é a taxa
+-- calculada com as regras vigentes na hora (NULL = fora da área).
+CREATE TABLE IF NOT EXISTS geocoded_addresses (
+    id INTEGER PRIMARY KEY,
+    address_text TEXT UNIQUE,
+    lat REAL,
+    lon REAL,
+    distance_km REAL,
+    delivery_fee REAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -128,6 +155,9 @@ def init_db():
         conn.commit()
     if "troco_amount" not in existing_order_columns:
         conn.execute("ALTER TABLE orders ADD COLUMN troco_amount REAL")
+        conn.commit()
+    if "delivery_fee" not in existing_order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN delivery_fee REAL")
         conn.commit()
 
     row = conn.execute("SELECT COUNT(*) AS c FROM store").fetchone()
@@ -491,6 +521,55 @@ def insert_sale(sale):
         conn.close()
 
 
+# ---------- cache de geocodificação (taxa de entrega) ----------
+
+def get_geocoded(address_text):
+    """Devolve a linha do cache para esse endereço (já normalizado) ou None."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT address_text, lat, lon, distance_km, delivery_fee FROM geocoded_addresses WHERE address_text = ?",
+            (address_text,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def save_geocoded(address_text, lat, lon, distance_km, delivery_fee):
+    """Grava (ou atualiza) um endereço geocodificado. UNIQUE em address_text
+    evita duplicatas se duas requisições gravarem o mesmo endereço."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO geocoded_addresses (address_text, lat, lon, distance_km, delivery_fee)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(address_text) DO UPDATE SET
+                lat = excluded.lat, lon = excluded.lon,
+                distance_km = excluded.distance_km, delivery_fee = excluded.delivery_fee""",
+            (address_text, lat, lon, distance_km, delivery_fee),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_geocoded_fee(address_text, delivery_fee):
+    """Atualiza só a taxa (quando o dono muda a tabela de preços)."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE geocoded_addresses SET delivery_fee = ? WHERE address_text = ?",
+            (delivery_fee, address_text),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ---------- pedidos do cliente (fila de impressão) ----------
 #
 # Quando o cliente confirma o pedido no carrinho, o navegador manda o
@@ -506,8 +585,8 @@ def insert_order(order):
     try:
         cursor = conn.execute(
             """INSERT INTO orders
-            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status, troco_paid_with, troco_amount)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?)""",
+            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status, troco_paid_with, troco_amount, delivery_fee)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?)""",
             (
                 order.get("created_at"),
                 order.get("customer_name", ""),
@@ -519,6 +598,7 @@ def insert_order(order):
                 float(order.get("total", 0) or 0),
                 order.get("troco_paid_with"),
                 order.get("troco_amount"),
+                order.get("delivery_fee"),
             ),
         )
         conn.commit()
@@ -545,6 +625,7 @@ def _order_row_to_dict(r):
         "printed_at": r["printed_at"],
         "troco_paid_with": r["troco_paid_with"],
         "troco_amount": r["troco_amount"],
+        "delivery_fee": r["delivery_fee"],
     }
 
 
