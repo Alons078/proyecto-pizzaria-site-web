@@ -72,7 +72,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.environ.get(contra)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(16))
 
 if not os.environ.get("ADMIN_PASSWORD"):
