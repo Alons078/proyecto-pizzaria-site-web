@@ -68,9 +68,13 @@ function renderCart() {
   const total = cartTotal(cart);
 
   footerEl.innerHTML = `
+    <div class="cart-total-row cart-fee-row" id="cart-fee-row" style="display:none;">
+      <span>Taxa de entrega</span>
+      <strong id="cart-fee-value"></strong>
+    </div>
     <div class="cart-total-row">
       <span>Total</span>
-      <strong>${cartFormatPrice(total)}</strong>
+      <strong id="cart-total-value">${cartFormatPrice(total)}</strong>
     </div>
 
     <div class="checkout-field">
@@ -88,6 +92,7 @@ function renderCart() {
       <label>Endereço para entrega</label>
       <input type="text" id="checkout-address" placeholder="Rua, número, bairro">
     </div>
+    <div class="checkout-field" id="fee-field"></div>
     <div class="checkout-field">
       <label>Forma de pagamento</label>
       <select id="checkout-payment">
@@ -123,6 +128,24 @@ function renderCart() {
   const trocoInput = document.getElementById("checkout-troco");
   const trocoResult = document.getElementById("troco-result");
 
+  // Taxa de entrega por distância: o total e o troco passam a considerá-la.
+  const feeCtl = cartAttachDeliveryFee({
+    deliverySelect,
+    addressInput: document.getElementById("checkout-address"),
+    mount: document.getElementById("fee-field"),
+    onChange: () => updateTotals(),
+  });
+  const grandTotal = () => total + feeCtl.feeAmount();
+
+  function updateTotals() {
+    const feeRow = document.getElementById("cart-fee-row");
+    const feeText = feeCtl.feeText();
+    feeRow.style.display = feeText ? "flex" : "none";
+    document.getElementById("cart-fee-value").textContent = feeText || "";
+    document.getElementById("cart-total-value").textContent = cartFormatPrice(grandTotal());
+    updateTrocoResult();
+  }
+
   const toggleTrocoField = () => {
     const isDinheiro = paymentSelect.value === "Dinheiro";
     trocoField.style.display = isDinheiro ? "block" : "none";
@@ -146,12 +169,12 @@ function renderCart() {
       trocoResult.classList.remove("troco-warning");
       return;
     }
-    if (paidWith < total) {
-      trocoResult.textContent = `Valor menor que o total do pedido (${cartFormatPrice(total)}).`;
+    if (paidWith < grandTotal()) {
+      trocoResult.textContent = `Valor menor que o total do pedido (${cartFormatPrice(grandTotal())}).`;
       trocoResult.classList.add("troco-warning");
       return;
     }
-    trocoResult.textContent = `Troco: ${cartFormatPrice(paidWith - total)}`;
+    trocoResult.textContent = `Troco: ${cartFormatPrice(paidWith - grandTotal())}`;
     trocoResult.classList.remove("troco-warning");
   };
 
@@ -161,11 +184,11 @@ function renderCart() {
 
   document.getElementById("checkout-btn").addEventListener("click", (event) => {
     event.preventDefault();
-    sendToWhatsApp(cart, total);
+    sendToWhatsApp(cart, total, feeCtl);
   });
 }
 
-function sendToWhatsApp(cart, total) {
+function sendToWhatsApp(cart, subtotal, feeCtl) {
   const warningEl = document.getElementById("checkout-warning");
   const phone = String(storeInfo.whatsapp_number || "").replace(/\D/g, "");
 
@@ -189,6 +212,16 @@ function sendToWhatsApp(cart, total) {
     warningEl.textContent = "Digite o endereço de entrega.";
     return;
   }
+  if (feeCtl.isBusy()) {
+    warningEl.textContent = "Aguarde, ainda estamos calculando a taxa de entrega.";
+    return;
+  }
+  if (!feeCtl.isResolved()) {
+    warningEl.textContent = "Toque em “Calcular taxa de entrega” antes de confirmar o pedido.";
+    return;
+  }
+
+  const total = subtotal + feeCtl.feeAmount();   // total COM a taxa de entrega
 
   let trocoPaidWith = null;
   let trocoAmount = null;
@@ -206,7 +239,10 @@ function sendToWhatsApp(cart, total) {
   }
   warningEl.textContent = "";
 
-  const checkout = { name, delivery, address, payment, notes, trocoPaidWith, trocoAmount };
+  const checkout = {
+    name, delivery, address, payment, notes, trocoPaidWith, trocoAmount,
+    deliveryFeeText: feeCtl.feeText(),
+  };
 
   /* Manda o pedido para o servidor (para o agente de impressão térmica
    * pegar), mas sem travar o cliente: mesmo que isso falhe (sem

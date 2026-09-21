@@ -1699,3 +1699,26 @@ footer.foot {
   .reveal { opacity: 1; transform: none; transition: none; }
   .card:hover, .highlight-card:hover { transform: none; }
 }
+
+/* ---------- taxa de entrega por distância ---------- */
+.fee-btn {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--paper-warm);
+  color: var(--ink);
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.fee-btn:disabled { opacity: 0.6; cursor: progress; }
+.fee-result {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  min-height: 1em;
+}
+.fee-result.fee-warning { color: var(--ember-dark); }
+.cart-fee-row { padding: 8px 0 0; font-size: 14px; color: var(--ink-soft); }

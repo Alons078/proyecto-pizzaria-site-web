@@ -89,7 +89,15 @@ function cartOrderMessage(cart, total, checkout) {
 
   let message = `Olá! Gostaria de fazer o seguinte pedido:\n\n`;
   message += lines.join("\n");
-  message += `\n\n*Total: ${cartFormatPrice(total)}*\n\n`;
+  message += "\n\n";
+  // checkout.deliveryFeeText: "R$ 5,00" (calculada) ou "a combinar" (não deu
+  // para calcular). Ausente na retirada. `total` já vem COM a taxa somada.
+  if (checkout.deliveryFeeText) {
+    message += `Taxa de entrega: ${checkout.deliveryFeeText}\n`;
+  }
+  message += `*Total: ${cartFormatPrice(total)}*`;
+  if (checkout.deliveryFeeText === "a combinar") message += " (+ taxa de entrega)";
+  message += "\n\n";
   message += `Nome: ${checkout.name}\n`;
   message += `Entrega: ${checkout.delivery}\n`;
   if (checkout.delivery === "Entrega (delivery)" && checkout.address) {
@@ -122,6 +130,124 @@ function cartRegisterOrder(cart, checkout) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   }).catch((error) => console.error("Não foi possível registrar o pedido para impressão:", error));
+}
+
+/*
+ * ---------- taxa de entrega por distância ----------
+ * Usado pelas três telas de checkout (carrinho, produto, promoção).
+ * Pergunta ao servidor (POST /api/calcular-tarifa) a taxa do endereço.
+ * Endereço novo pode levar alguns segundos (fila de 1 req/s do Nominatim);
+ * endereço já consultado responde na hora (cache).
+ */
+const CART_DELIVERY_VALUE = "Entrega (delivery)";
+
+async function cartFetchDeliveryQuote(address) {
+  try {
+    const res = await fetch("/api/calcular-tarifa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      return { status: "ok", address, fee: Number(data.fee), distance_km: Number(data.distance_km) };
+    }
+    return {
+      status: "manual",
+      address,
+      message: data.error || "Não foi possível calcular a taxa agora.",
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      status: "manual",
+      address,
+      message: "Não foi possível calcular a taxa agora.",
+    };
+  }
+}
+
+/*
+ * Liga o cálculo de taxa a um checkout.
+ *   deliverySelect / addressInput: os campos já existentes da tela
+ *   mount:    elemento vazio onde o botão e o resultado serão desenhados
+ *   onChange: chamado quando a taxa muda (para a tela refazer o total)
+ * Devolve { calculate, isResolved, feeAmount, feeText }.
+ *
+ * "manual" (endereço não achado, fora da área, sem internet...) NÃO bloqueia
+ * o pedido: a taxa vai como "a combinar" e a pizzaria confirma pelo WhatsApp.
+ */
+function cartAttachDeliveryFee({ deliverySelect, addressInput, mount, onChange }) {
+  let quote = null;
+  let busy = false;
+
+  mount.innerHTML = `
+    <button type="button" class="fee-btn">📍 Calcular taxa de entrega</button>
+    <p class="fee-result" aria-live="polite"></p>
+  `;
+  const button = mount.querySelector(".fee-btn");
+  const resultEl = mount.querySelector(".fee-result");
+
+  const isDelivery = () => deliverySelect.value === CART_DELIVERY_VALUE;
+  const currentAddress = () => addressInput.value.trim();
+
+  function render() {
+    mount.style.display = isDelivery() ? "block" : "none";
+    resultEl.classList.remove("fee-warning");
+    if (busy) {
+      resultEl.textContent = "Calculando a taxa… pode levar alguns segundos.";
+    } else if (!quote) {
+      resultEl.textContent = "";
+    } else if (quote.status === "ok") {
+      resultEl.textContent = `Taxa de entrega: ${cartFormatPrice(quote.fee)} (≈ ${quote.distance_km.toFixed(1).replace(".", ",")} km)`;
+    } else {
+      resultEl.textContent = `${quote.message} A taxa será combinada pelo WhatsApp.`;
+      resultEl.classList.add("fee-warning");
+    }
+    button.disabled = busy;
+  }
+
+  async function calculate() {
+    const address = currentAddress();
+    if (!isDelivery() || !address || busy) return quote;
+    busy = true;
+    quote = null;
+    render();
+    const result = await cartFetchDeliveryQuote(address);
+    busy = false;
+    // Se o cliente mudou o endereço enquanto esperava, descarta a resposta velha.
+    if (currentAddress() === address) quote = result;
+    render();
+    onChange();
+    return quote;
+  }
+
+  button.addEventListener("click", calculate);
+  addressInput.addEventListener("input", () => {
+    if (quote) {
+      quote = null;
+      render();
+      onChange();
+    }
+  });
+  deliverySelect.addEventListener("change", () => {
+    render();
+    onChange();
+  });
+  render();
+
+  return {
+    calculate,
+    /* Retirada, ou entrega com taxa já calculada para o endereço atual. */
+    isResolved: () => !isDelivery() || (!!quote && quote.address === currentAddress()),
+    isBusy: () => busy,
+    feeAmount: () => (isDelivery() && quote && quote.status === "ok" ? quote.fee : 0),
+    /* "R$ 5,00", "a combinar", ou null na retirada. */
+    feeText: () => {
+      if (!isDelivery() || !quote) return null;
+      return quote.status === "ok" ? cartFormatPrice(quote.fee) : "a combinar";
+    },
+  };
 }
 
 /* Bolinha com a quantidade de itens no carrinho, mostrada perto da marca. */

@@ -19,6 +19,7 @@ let currentPromo = null;
 let currentItems = [];
 let currentQty = 1;
 let storeInfo = { whatsapp_number: "" };
+let buyNowFee = null; // controlador da taxa de entrega (ver cart.js)
 
 async function loadPromotion() {
   const container = document.getElementById("promo-content");
@@ -92,6 +93,7 @@ function renderPromotion(promo, items) {
         <label>Endereço para entrega</label>
         <input type="text" id="buy-now-address" placeholder="Rua, número, bairro">
       </div>
+      <div class="checkout-field" id="buy-now-fee-field"></div>
       <div class="checkout-field">
         <label>Forma de pagamento</label>
         <select id="buy-now-payment">
@@ -119,6 +121,13 @@ function renderPromotion(promo, items) {
   };
   deliverySelect.addEventListener("change", toggleAddressField);
   toggleAddressField();
+
+  buyNowFee = cartAttachDeliveryFee({
+    deliverySelect,
+    addressInput: document.getElementById("buy-now-address"),
+    mount: document.getElementById("buy-now-fee-field"),
+    onChange: () => {},
+  });
 
   document.getElementById("buy-now-confirm").addEventListener("click", buyNowConfirm);
 
@@ -226,7 +235,16 @@ function buyNowConfirm(event) {
     warningEl.textContent = "Digite o endereço de entrega.";
     return;
   }
+  if (buyNowFee && buyNowFee.isBusy()) {
+    warningEl.textContent = "Aguarde, ainda estamos calculando a taxa de entrega.";
+    return;
+  }
+  if (buyNowFee && !buyNowFee.isResolved()) {
+    warningEl.textContent = "Toque em “Calcular taxa de entrega” antes de confirmar o pedido.";
+    return;
+  }
   warningEl.textContent = "";
+  const deliveryFee = buyNowFee ? buyNowFee.feeAmount() : 0;
 
   const selects = [...document.querySelectorAll(".promo-select")];
   const chosenNames = selects.map((select) => {
@@ -240,7 +258,7 @@ function buyNowConfirm(event) {
     qty: currentQty,
     unit_price: unitPrice,
   };
-  const total = unitPrice * currentQty;
+  const total = unitPrice * currentQty + deliveryFee;   // total COM a taxa de entrega
   const checkout = {
     name: customerName,
     delivery,
@@ -249,6 +267,7 @@ function buyNowConfirm(event) {
     notes: "",
     trocoPaidWith: null,
     trocoAmount: null,
+    deliveryFeeText: buyNowFee ? buyNowFee.feeText() : null,
   };
 
   cartRegisterOrder([line], checkout);
