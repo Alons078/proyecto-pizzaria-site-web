@@ -597,6 +597,19 @@ header.top {
   gap: 10px;
 }
 
+.half-flavor-row.split-row-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.split-count-options {
+  margin-bottom: 12px;
+}
+
+.flavor-mode-btn.small {
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+
 .half-flavor-field label {
   display: block;
   font-family: var(--font-mono);
@@ -616,7 +629,8 @@ header.top {
 }
 
 @media (max-width: 480px) {
-  .half-flavor-row {
+  .half-flavor-row,
+  .half-flavor-row.split-row-3 {
     grid-template-columns: 1fr;
   }
 }

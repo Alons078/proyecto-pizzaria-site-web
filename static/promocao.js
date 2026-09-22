@@ -24,6 +24,13 @@ let updateBuyNowTroco = () => {}; // atualiza o resultado do troco (definida a c
 let storeBordas = [];
 let selectedBordaId = null;
 
+/* Estado por slot: "one" (1 sabor, seleção simples) ou "split" (meia a meia,
+ * máximo 2 sabores — mesmo limite do broto/média). Só se aplica a slots de
+ * categoria "pizza" com pelo menos 2 opções disponíveis. */
+let promoSlotMode = {};   // { [slotIndex]: "one" | "split" }
+let promoSlotSingle = {}; // { [slotIndex]: itemId }
+let promoSlotSplit = {};  // { [slotIndex]: [itemId1, itemId2] }
+
 async function loadPromotion() {
   const container = document.getElementById("promo-content");
   try {
@@ -38,6 +45,9 @@ async function loadPromotion() {
     storeInfo = data.store || {};
     storeBordas = Array.isArray(data.store && data.store.bordas) ? data.store.bordas : [];
     selectedBordaId = null;
+    promoSlotMode = {};
+    promoSlotSingle = {};
+    promoSlotSplit = {};
     renderPromotion(currentPromo, currentItems);
   } catch (error) {
     console.error(error);
@@ -54,18 +64,85 @@ function currentBorda() {
   return storeBordas.find((b) => String(b.id) === String(selectedBordaId)) || null;
 }
 
+function slotOptions(slot) {
+  return currentItems.filter((item) => item.category === slot.category && item.available !== false);
+}
+
+/* HTML do corpo de um slot: seleção simples, ou — para slots de pizza com
+ * pelo menos 2 opções — um alternador "1 sabor / Meia a meia (2 sabores)". */
+function slotBodyHTML(slot, index) {
+  const options = slotOptions(slot);
+  const canSplit = slot.category === "pizza" && options.length >= 2;
+  const mode = canSplit ? (promoSlotMode[index] || "one") : "one";
+
+  const singleSelectHTML = () => `
+    <select class="promo-select" data-slot-index="${index}" data-category="${escapeHTML(slot.category)}">
+      <option value="">Selecione ${escapeHTML(categoryLabel(slot.category))}</option>
+      ${options.map((item) => `<option value="${escapeHTML(item.id)}"${String(promoSlotSingle[index] ?? "") === String(item.id) ? " selected" : ""}>${escapeHTML(item.name)}${Number(item.promo_extra || 0) > 0 ? ` (+${cartFormatPrice(item.promo_extra)})` : ""}</option>`).join("")}
+    </select>
+  `;
+
+  if (!canSplit) return singleSelectHTML();
+
+  if (!Array.isArray(promoSlotSplit[index]) || promoSlotSplit[index].length !== 2) {
+    promoSlotSplit[index] = [options[0].id, (options[1] || options[0]).id];
+  }
+  const splitIds = promoSlotSplit[index];
+  const splitOptionsHTML = (selectedId) => options.map((o) => `<option value="${escapeHTML(o.id)}"${String(selectedId) === String(o.id) ? " selected" : ""}>${escapeHTML(o.name)}${Number(o.promo_extra || 0) > 0 ? ` (+${cartFormatPrice(o.promo_extra)})` : ""}</option>`).join("");
+
+  return `
+    <div class="flavor-mode-options">
+      <button type="button" class="flavor-mode-btn${mode === "one" ? " selected" : ""}" data-slot-index="${index}" data-mode="one">1 sabor</button>
+      <button type="button" class="flavor-mode-btn${mode === "split" ? " selected" : ""}" data-slot-index="${index}" data-mode="split">Meia a meia (2 sabores)</button>
+    </div>
+    ${mode === "split" ? `
+      <p class="flavor-hint">Escolha o sabor de cada metade:</p>
+      <div class="half-flavor-row">
+        <div class="half-flavor-field">
+          <label>1ª metade</label>
+          <select class="half-flavor-select promo-split-select" data-slot-index="${index}" data-part-index="0">${splitOptionsHTML(splitIds[0])}</select>
+        </div>
+        <div class="half-flavor-field">
+          <label>2ª metade</label>
+          <select class="half-flavor-select promo-split-select" data-slot-index="${index}" data-part-index="1">${splitOptionsHTML(splitIds[1])}</select>
+        </div>
+      </div>
+    ` : singleSelectHTML()}
+  `;
+}
+
+/* Re-renderiza só o corpo de um slot (ao trocar de modo), sem mexer nos
+ * outros slots já preenchidos. */
+function renderSlotBody(index) {
+  const slot = (currentPromo.slots || [])[index];
+  if (!slot) return;
+  const el = document.getElementById(`promo-slot-${index}`);
+  if (!el) return;
+  el.querySelector(".promo-slot-body").innerHTML = slotBodyHTML(slot, index);
+  updatePromoState();
+}
+
+/* Seleção atual de um slot: { mode, ids } ou null se ainda incompleto. */
+function getSlotSelection(index) {
+  const canSplit = (promoSlotMode[index] || "one") === "split";
+  if (canSplit) {
+    const ids = promoSlotSplit[index] || [];
+    if (ids.length !== 2 || ids[0] == null || ids[0] === "" || ids[1] == null || ids[1] === "") return null;
+    return { mode: "split", ids };
+  }
+  const id = promoSlotSingle[index];
+  if (id == null || id === "") return null;
+  return { mode: "one", ids: [id] };
+}
+
 function renderPromotion(promo, items) {
   const container = document.getElementById("promo-content");
-  const slots = (promo.slots || []).map((slot, index) => {
-    const options = items.filter((item) => item.category === slot.category && item.available !== false);
-    return `<div class="promo-slot-block">
+  const slots = (promo.slots || []).map((slot, index) => `
+    <div class="promo-slot-block" id="promo-slot-${index}">
       <label>${escapeHTML(slot.label || `Escolha ${index + 1}`)}</label>
-      <select class="promo-select" data-slot-index="${index}" data-category="${escapeHTML(slot.category)}">
-        <option value="">Selecione ${escapeHTML(categoryLabel(slot.category))}</option>
-        ${options.map((item) => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}${Number(item.promo_extra || 0) > 0 ? ` (+${cartFormatPrice(item.promo_extra)})` : ""}</option>`).join("")}
-      </select>
-    </div>`;
-  }).join("");
+      <div class="promo-slot-body">${slotBodyHTML(slot, index)}</div>
+    </div>
+  `).join("");
 
   let bordaHTML = "";
   if (promoIncludesPizza(promo) && storeBordas.length) {
@@ -157,8 +234,27 @@ function renderPromotion(promo, items) {
     </div>
   `;
 
-  const selects = [...container.querySelectorAll(".promo-select")];
-  selects.forEach((select) => select.addEventListener("change", updatePromoState));
+  const promoChoicesEl = container.querySelector(".promo-choices");
+  promoChoicesEl.addEventListener("click", (event) => {
+    const btn = event.target.closest(".flavor-mode-btn[data-slot-index]");
+    if (!btn) return;
+    const idx = Number(btn.dataset.slotIndex);
+    promoSlotMode[idx] = btn.dataset.mode;
+    renderSlotBody(idx);
+  });
+  promoChoicesEl.addEventListener("change", (event) => {
+    const target = event.target;
+    if (target.matches(".promo-select[data-slot-index]")) {
+      promoSlotSingle[Number(target.dataset.slotIndex)] = target.value;
+      updatePromoState();
+    } else if (target.matches(".promo-split-select")) {
+      const idx = Number(target.dataset.slotIndex);
+      const part = Number(target.dataset.partIndex);
+      if (!Array.isArray(promoSlotSplit[idx])) promoSlotSplit[idx] = [];
+      promoSlotSplit[idx][part] = target.value;
+      updatePromoState();
+    }
+  });
   container.querySelectorAll('input[name="borda"]').forEach((input) => {
     input.addEventListener("change", () => {
       selectedBordaId = input.value ? input.value : null;
@@ -237,11 +333,13 @@ function renderPromotion(promo, items) {
 
 function currentUnitPrice() {
   let total = Number(currentPromo.price || 0);
-  const selects = [...document.querySelectorAll(".promo-select")];
-  selects.forEach((select) => {
-    if (!select.value) return;
-    const item = currentItems.find((i) => String(i.id) === String(select.value));
-    total += Number(item?.promo_extra || 0);
+  (currentPromo.slots || []).forEach((slot, index) => {
+    const sel = getSlotSelection(index);
+    if (!sel) return;
+    sel.ids.forEach((id) => {
+      const item = currentItems.find((i) => String(i.id) === String(id));
+      total += Number(item?.promo_extra || 0);
+    });
   });
   const borda = currentBorda();
   if (borda) total += Number(borda.price || 0);
@@ -249,8 +347,25 @@ function currentUnitPrice() {
 }
 
 function allSlotsChosen() {
-  const selects = [...document.querySelectorAll(".promo-select")];
-  return selects.every((select) => select.value);
+  return (currentPromo.slots || []).every((slot, index) => getSlotSelection(index) !== null);
+}
+
+/* Nomes escolhidos em cada slot, prontos para exibir (ex.: "Meia
+ * Calabresa / Meia Frango" quando o slot está no modo meia a meia). */
+function chosenSlotNames() {
+  return (currentPromo.slots || []).map((slot, index) => {
+    const sel = getSlotSelection(index);
+    if (!sel) return "";
+    const names = sel.ids.map((id) => {
+      const item = currentItems.find((i) => String(i.id) === String(id));
+      return item ? item.name : "";
+    }).filter(Boolean);
+    if (sel.mode === "split" && names.length === 2) {
+      if (names[0] === names[1]) return names[0];
+      return `Meia ${names[0]} / Meia ${names[1]}`;
+    }
+    return names[0] || "";
+  }).filter(Boolean);
 }
 
 function updatePromoState() {
@@ -282,17 +397,16 @@ function updateQty(delta) {
 }
 
 function buildCartEntry() {
-  const selects = [...document.querySelectorAll(".promo-select")];
-  const chosenNames = selects.map((select) => {
-    const item = currentItems.find((i) => String(i.id) === String(select.value));
-    return item ? item.name : "";
-  }).filter(Boolean);
+  const chosenNames = chosenSlotNames();
 
   const borda = currentBorda();
   if (borda) chosenNames.push(`Borda de ${borda.name}`);
 
   const unitPrice = currentUnitPrice();
-  let choiceKey = selects.map((s) => s.value).join("-");
+  let choiceKey = (currentPromo.slots || []).map((slot, index) => {
+    const sel = getSlotSelection(index);
+    return sel ? sel.ids.join("-") : "x";
+  }).join("_");
   if (selectedBordaId != null) choiceKey += `-borda-${selectedBordaId}`;
 
   return {
@@ -361,11 +475,7 @@ function buyNowConfirm(event) {
   }
   const deliveryFee = buyNowFee ? buyNowFee.feeAmount() : 0;
 
-  const selects = [...document.querySelectorAll(".promo-select")];
-  const chosenNames = selects.map((select) => {
-    const item = currentItems.find((i) => String(i.id) === String(select.value));
-    return item ? item.name : "";
-  }).filter(Boolean);
+  const chosenNames = chosenSlotNames();
 
   const borda = currentBorda();
   if (borda) chosenNames.push(`Borda de ${borda.name}`);
