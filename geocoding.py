@@ -3,7 +3,10 @@ Taxa de entrega automática da Rey Pizzaria.
 
 Fluxo (chamado por POST /api/calcular-tarifa em app.py):
 
-1. Normaliza o endereço e procura em `geocoded_addresses` (cache).
+0. Se o endereço contém o nome de um bairro com taxa fixa (NEIGHBORHOOD_FEES),
+   devolve essa taxa na hora — sem geocodificar, sem gastar consulta ao
+   Nominatim. É a exceção às regras abaixo.
+1. Senão, normaliza o endereço e procura em `geocoded_addresses` (cache).
 2. Se achou -> devolve a taxa sem chamar nenhuma API externa.
 3. Se não achou -> coloca o endereço numa fila. UMA thread trabalhadora
    consulta o Nominatim (OpenStreetMap) no máximo 1 vez por segundo.
@@ -13,7 +16,16 @@ Fluxo (chamado por POST /api/calcular-tarifa em app.py):
 Configuração (variáveis de ambiente no Render; todas opcionais menos as
 coordenadas da pizzaria):
 
-- PIZZERIA_LAT / PIZZERIA_LON -> coordenadas da pizzaria (OBRIGATÓRIAS).
+- NEIGHBORHOOD_FEES -> taxas fixas por bairro, em formato JSON
+                     '{"nome do bairro": valor, ...}'. Quando o endereço
+                     digitado contém esse texto (sem diferenciar maiúsculas
+                     ou acentos), usa essa taxa fixa direto, sem geocodificar.
+                     Padrão: {"piscinão de ramos": 3, "ramos": 10}
+                     Ex. no Render: {"piscinão de ramos": 3, "ramos": 10, "penha": 7}
+- PIZZERIA_LAT / PIZZERIA_LON -> coordenadas da pizzaria, para o cálculo
+                                 automático por distância nos demais endereços
+                                 (opcional se todos os bairros tiverem taxa
+                                 fixa; senão, esses endereços saem "a combinar").
                                  Ex.: abra o Google Maps, clique com o botão
                                  direito no ponto da loja e copie os números.
 - FEE_RADIUS_KM   -> raio da taxa base (padrão 3.0)
@@ -155,6 +167,55 @@ def fee_for_distance(distance_km):
     return round(FEE_BASE if distance_km <= FEE_RADIUS_KM else FEE_EXTRA, 2)
 
 
+# ---------- taxas fixas por bairro ----------
+# Endereços que contêm um desses nomes usam a taxa fixa direto, sem
+# geocodificar. Configurável por NEIGHBORHOOD_FEES (veja o topo do arquivo).
+
+_DEFAULT_NEIGHBORHOOD_FEES = [("piscinão de ramos", 3.0), ("ramos", 10.0)]
+
+
+def _load_neighborhood_fees(name="NEIGHBORHOOD_FEES", default=_DEFAULT_NEIGHBORHOOD_FEES):
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        pairs = default
+    else:
+        try:
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
+                raise ValueError('esperado um objeto JSON {"bairro": valor}')
+            pairs = list(parsed.items())
+        except (json.JSONDecodeError, ValueError) as exc:
+            print(f"AVISO: {name} inválido ({exc}) — usando o padrão.")
+            pairs = default
+    normalized = []
+    for bairro, valor in pairs:
+        key = normalize_address(bairro)
+        try:
+            valor = round(float(str(valor).replace(",", ".")), 2)
+        except (TypeError, ValueError):
+            print(f"AVISO: taxa inválida para o bairro {bairro!r} em {name} — ignorada.")
+            continue
+        if key:
+            normalized.append((key, valor))
+    # Mais específico primeiro: "piscinão de ramos" antes de "ramos", senão
+    # um endereço no Piscinão bateria primeiro na regra genérica de Ramos.
+    normalized.sort(key=lambda par: len(par[0]), reverse=True)
+    return normalized
+
+
+NEIGHBORHOOD_FEES = _load_neighborhood_fees()
+
+
+def match_neighborhood_fee(address):
+    """Devolve (bairro, taxa) se o endereço citar um bairro com taxa fixa,
+    senão None. Comparação por substring, sem acentos nem maiúsculas."""
+    key = normalize_address(address)
+    for bairro, taxa in NEIGHBORHOOD_FEES:
+        if bairro in key:
+            return bairro, taxa
+    return None
+
+
 # ---------- Nominatim ----------
 
 def _nominatim_search(query):
@@ -278,9 +339,13 @@ def _from_cache(key):
 # ---------- API pública do módulo ----------
 
 def lookup_cached_fee(address):
-    """Só consulta o cache (nunca chama API externa). Usado ao registrar o
-    pedido, para o servidor não confiar na taxa enviada pelo navegador.
-    Devolve a taxa (float) ou None se não houver taxa válida em cache."""
+    """Só consulta taxa fixa por bairro ou cache (nunca chama API externa).
+    Usado ao registrar o pedido, para o servidor não confiar na taxa enviada
+    pelo navegador. Devolve a taxa (float) ou None se não houver taxa válida."""
+    address = str(address or "")
+    match = match_neighborhood_fee(address)
+    if match:
+        return match[1]
     key = normalize_address(address)
     if not key or not is_configured():
         return None
@@ -291,12 +356,18 @@ def lookup_cached_fee(address):
 
 
 def calculate_fee(address):
-    """Devolve {"fee", "distance_km", "cached"} ou levanta GeocodingError."""
+    """Devolve {"fee", "distance_km", "cached"} ou levanta GeocodingError.
+    distance_km vem None quando a taxa veio de um bairro com preço fixo."""
     address = str(address or "").strip()
     if not address:
         raise InvalidAddress()
     if len(address) > MAX_ADDRESS_LENGTH:
         raise InvalidAddress("Endereço muito longo.")
+
+    match = match_neighborhood_fee(address)
+    if match:
+        return {"fee": match[1], "distance_km": None, "cached": True}
+
     if not is_configured():
         print("AVISO: PIZZERIA_LAT/PIZZERIA_LON não definidos — taxa automática desligada.")
         raise NotConfigured()
