@@ -150,7 +150,9 @@ async function cartFetchDeliveryQuote(address) {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok) {
-      return { status: "ok", address, fee: Number(data.fee), distance_km: Number(data.distance_km) };
+      // distance_km vem null quando a taxa é fixa por bairro (sem geocodificação).
+      const hasDistance = data.distance_km !== null && data.distance_km !== undefined;
+      return { status: "ok", address, fee: Number(data.fee), distance_km: hasDistance ? Number(data.distance_km) : null };
     }
     return {
       status: "manual",
@@ -199,7 +201,8 @@ function cartAttachDeliveryFee({ deliverySelect, addressInput, mount, onChange }
     } else if (!quote) {
       resultEl.textContent = "";
     } else if (quote.status === "ok") {
-      resultEl.textContent = `Taxa de entrega: ${cartFormatPrice(quote.fee)} (≈ ${quote.distance_km.toFixed(1).replace(".", ",")} km)`;
+      const distanceText = quote.distance_km === null ? "" : ` (≈ ${quote.distance_km.toFixed(1).replace(".", ",")} km)`;
+      resultEl.textContent = `Taxa de entrega: ${cartFormatPrice(quote.fee)}${distanceText}`;
     } else {
       resultEl.textContent = `${quote.message} A taxa será combinada pelo WhatsApp.`;
       resultEl.classList.add("fee-warning");
