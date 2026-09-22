@@ -238,8 +238,7 @@ def get_item(item_id):
         "pizza_sizes": data["pizza_sizes"] if item.get("category") == "pizza" else [],
         "store": {
             "whatsapp_number": data["store"].get("whatsapp_number", ""),
-            "borda_catupiry_price": data["store"].get("borda_catupiry_price", 10.0),
-            "borda_cheddar_price": data["store"].get("borda_cheddar_price", 10.0),
+            "bordas": data["store"].get("bordas", []),
         },
     })
 
@@ -257,8 +256,7 @@ def get_promotion(promo_id):
         "items": data["items"],
         "store": {
             "whatsapp_number": data["store"].get("whatsapp_number", ""),
-            "borda_catupiry_price": data["store"].get("borda_catupiry_price", 10.0),
-            "borda_cheddar_price": data["store"].get("borda_cheddar_price", 10.0),
+            "bordas": data["store"].get("bordas", []),
         },
     })
 
@@ -439,6 +437,20 @@ def update_data():
             int(size.get("cm", 0) or 0)
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": f'O tamanho "{size.get("name")}" tem preço ou centímetros inválidos.'}), 400
+
+    store_in = new_data.get("store", {})
+    if not isinstance(store_in, dict):
+        store_in = {}
+    if "bordas" not in store_in or not isinstance(store_in["bordas"], list):
+        store_in["bordas"] = []
+    for borda in store_in["bordas"]:
+        if not isinstance(borda, dict) or not str(borda.get("name") or "").strip():
+            return jsonify({"ok": False, "error": "Existe uma borda sem nome."}), 400
+        try:
+            float(borda.get("price", 0))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": f'A borda "{borda.get("name")}" tem preço inválido.'}), 400
+    new_data["store"] = store_in
 
     for item in new_data["items"]:
         item.setdefault("promo_extra", 0)

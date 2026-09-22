@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS store (
     delivery_time TEXT NOT NULL DEFAULT '',
     min_order REAL NOT NULL DEFAULT 0,
     whatsapp_number TEXT NOT NULL DEFAULT '',
-    print_agent_token TEXT NOT NULL DEFAULT ''
+    print_agent_token TEXT NOT NULL DEFAULT '',
+    bordas TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS today_post (
@@ -145,6 +146,9 @@ def init_db():
         conn.commit()
     if "print_agent_token" not in existing_columns:
         conn.execute("ALTER TABLE store ADD COLUMN print_agent_token TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    if "bordas" not in existing_columns:
+        conn.execute("ALTER TABLE store ADD COLUMN bordas TEXT NOT NULL DEFAULT '[]'")
         conn.commit()
 
     # Troco (vuelto): colunas novas na tabela orders, para bancos criados
@@ -305,6 +309,27 @@ def _int_to_bool_or_none(value):
     return bool(value)
 
 
+# ---------- bordas (bordas recheadas de pizza) ----------
+
+_DEFAULT_BORDAS = [
+    {"id": 1, "name": "Catupiry", "price": 10.0},
+    {"id": 2, "name": "Cheddar", "price": 10.0},
+]
+
+
+def _load_bordas(store_row):
+    raw = store_row["bordas"] if "bordas" in store_row.keys() else None
+    if not raw:
+        return list(_DEFAULT_BORDAS)
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return list(_DEFAULT_BORDAS)
+    if not isinstance(parsed, list) or not parsed:
+        return list(_DEFAULT_BORDAS)
+    return parsed
+
+
 # ---------- leitura ----------
 
 def load_data():
@@ -331,6 +356,7 @@ def load_data():
         "min_order": store_row["min_order"],
         "whatsapp_number": store_row["whatsapp_number"],
         "print_agent_token": store_row["print_agent_token"],
+        "bordas": _load_bordas(store_row),
     } if store_row else {}
 
     today_post = {
@@ -410,8 +436,8 @@ def save_menu_data(new_data):
         hours = store.get("hours", {})
         conn.execute(
             """INSERT OR REPLACE INTO store
-            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number, print_agent_token)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number, print_agent_token, bordas)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 store.get("name", ""),
                 store.get("logo", ""),
@@ -423,6 +449,7 @@ def save_menu_data(new_data):
                 float(store.get("min_order", 0) or 0),
                 store.get("whatsapp_number", ""),
                 store.get("print_agent_token", ""),
+                json.dumps(store.get("bordas") if isinstance(store.get("bordas"), list) else [], ensure_ascii=False),
             ),
         )
 
