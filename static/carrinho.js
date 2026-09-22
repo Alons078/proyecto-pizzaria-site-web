@@ -89,8 +89,16 @@ function renderCart() {
       </select>
     </div>
     <div class="checkout-field" id="address-field">
-      <label>Endereço para entrega</label>
-      <input type="text" id="checkout-address" placeholder="Rua, número, bairro">
+      <label>Bairro de entrega</label>
+      <div class="flavor-mode-options">
+        <button type="button" class="zone-option flavor-mode-btn" data-zone="Piscinão de Ramos">Piscinão de Ramos</button>
+        <button type="button" class="zone-option flavor-mode-btn" data-zone="Ramos">Ramos</button>
+      </div>
+      <div class="zone-address-wrap" style="display:none;">
+        <label>Seu endereço (rua, número)</label>
+        <input type="text" class="zone-street-input" placeholder="Rua, número">
+      </div>
+      <input type="hidden" class="zone-hidden-address" id="checkout-address">
     </div>
     <div class="checkout-field" id="fee-field"></div>
     <div class="checkout-field">
@@ -127,6 +135,8 @@ function renderCart() {
   const trocoField = document.getElementById("troco-field");
   const trocoInput = document.getElementById("checkout-troco");
   const trocoResult = document.getElementById("troco-result");
+
+  cartAttachDeliveryZone(document.getElementById("address-field"));
 
   // Taxa de entrega por distância: o total e o troco passam a considerá-la.
   const feeCtl = cartAttachDeliveryFee({
