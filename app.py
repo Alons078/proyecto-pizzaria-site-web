@@ -486,6 +486,19 @@ def update_data():
     return jsonify({"ok": True})
 
 
+@app.route("/api/admin/item/<int:item_id>/disponibilidade", methods=["POST"])
+@require_admin
+def toggle_item_availability(item_id):
+    """Liga/desliga a disponibilidade de um produto na hora (botão
+    'Esgotado' do admin), sem precisar salvar o cardápio inteiro."""
+    body = request.get_json(silent=True) or {}
+    available = bool(body.get("available"))
+    ok = db.set_item_availability(item_id, available)
+    if not ok:
+        return jsonify({"ok": False, "error": "Produto não encontrado."}), 404
+    return jsonify({"ok": True, "available": available})
+
+
 @app.route("/api/admin/print-token/regenerate", methods=["POST"])
 @require_admin
 def regenerate_print_token():

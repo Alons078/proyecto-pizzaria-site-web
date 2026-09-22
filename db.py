@@ -176,6 +176,14 @@ def init_db():
         conn.execute("ALTER TABLE orders ADD COLUMN delivery_fee REAL")
         conn.commit()
 
+    # Disponibilidade (produto "esgotado"): coluna nova na tabela items,
+    # para bancos criados antes desse recurso existir. Todo item antigo
+    # entra como disponível (1), pra não sumir nada do cardápio.
+    existing_item_columns = [r["name"] for r in conn.execute("PRAGMA table_info(items)").fetchall()]
+    if "available" not in existing_item_columns:
+        conn.execute("ALTER TABLE items ADD COLUMN available INTEGER NOT NULL DEFAULT 1")
+        conn.commit()
+
     row = conn.execute("SELECT COUNT(*) AS c FROM store").fetchone()
     is_empty = row["c"] == 0
 
@@ -390,6 +398,7 @@ def load_data():
             "image": r["image"],
             "promo_extra": r["promo_extra"],
             "featured": bool(r["featured"]),
+            "available": bool(r["available"]),
         }
         for r in item_rows
     ]
@@ -480,8 +489,8 @@ def save_menu_data(new_data):
         conn.execute("DELETE FROM items")
         for item in new_data.get("items", []):
             conn.execute(
-                """INSERT INTO items (id, category, name, price, description, image, promo_extra, featured)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO items (id, category, name, price, description, image, promo_extra, featured, available)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     int(item["id"]),
                     item.get("category", ""),
@@ -491,6 +500,7 @@ def save_menu_data(new_data):
                     item.get("image", ""),
                     float(item.get("promo_extra", 0) or 0),
                     1 if item.get("featured") else 0,
+                    0 if item.get("available") is False else 1,
                 ),
             )
 
@@ -534,6 +544,22 @@ def save_menu_data(new_data):
     except Exception:
         conn.rollback()
         raise
+    finally:
+        conn.close()
+
+
+def set_item_availability(item_id, available):
+    """Liga/desliga um único produto (marcar como 'esgotado' e voltar a
+    disponibilizar), sem precisar reescrever o cardápio inteiro. Usado pelo
+    botão rápido do admin, que aplica na hora, sem precisar clicar em Salvar."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE items SET available = ? WHERE id = ?",
+            (1 if available else 0, int(item_id)),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
     finally:
         conn.close()
 
