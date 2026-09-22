@@ -34,6 +34,9 @@ function fillForm(data) {
   document.getElementById("store-delivery-time").value = store.delivery_time || "";
   document.getElementById("store-min-order").value = store.min_order || "";
   document.getElementById("store-whatsapp").value = store.whatsapp_number || "";
+  document.getElementById("store-pix-key").value = store.pix_key || "";
+  document.getElementById("store-pix-name").value = store.pix_name || "";
+  document.getElementById("store-pix-city").value = store.pix_city || "";
   document.getElementById("store-print-token").value = store.print_agent_token || "";
   setImagePreview("store-logo-preview", store.logo);
   setImagePreview("post-image-preview", today_post.image);
@@ -675,7 +678,7 @@ function collectForm() {
   });
 
   return {
-    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, whatsapp_number: document.getElementById("store-whatsapp").value.trim(), logo: currentData.store.logo || "", bordas },
+    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, whatsapp_number: document.getElementById("store-whatsapp").value.trim(), pix_key: document.getElementById("store-pix-key").value.trim(), pix_name: document.getElementById("store-pix-name").value.trim(), pix_city: document.getElementById("store-pix-city").value.trim(), logo: currentData.store.logo || "", bordas },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
     promotions,

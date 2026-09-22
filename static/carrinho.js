@@ -109,6 +109,7 @@ function renderCart() {
         <option value="Pix">Pix</option>
       </select>
     </div>
+    <div class="checkout-field pix-section" id="pix-section" style="display:none;"></div>
     <div class="checkout-field" id="troco-field">
       <label>Troco para quanto? (opcional)</label>
       <input type="number" id="checkout-troco" placeholder="Ex.: 100" min="0" step="0.01" inputmode="decimal">
@@ -135,6 +136,7 @@ function renderCart() {
   const trocoField = document.getElementById("troco-field");
   const trocoInput = document.getElementById("checkout-troco");
   const trocoResult = document.getElementById("troco-result");
+  const pixSection = document.getElementById("pix-section");
 
   cartAttachDeliveryZone(document.getElementById("address-field"));
 
@@ -154,6 +156,76 @@ function renderCart() {
     document.getElementById("cart-fee-value").textContent = feeText || "";
     document.getElementById("cart-total-value").textContent = cartFormatPrice(grandTotal());
     updateTrocoResult();
+    updatePixSection();
+  }
+
+  /* Mostra o QR Code e o código "Pix Copia e Cola" com o valor exato do
+   * pedido (já somando a taxa de entrega, se houver), sempre que o
+   * cliente escolhe Pix como forma de pagamento. */
+  function updatePixSection() {
+    if (paymentSelect.value !== "Pix") {
+      pixSection.style.display = "none";
+      pixSection.innerHTML = "";
+      return;
+    }
+
+    const pixKey = String(storeInfo.pix_key || "").trim();
+    pixSection.style.display = "block";
+
+    if (!pixKey) {
+      pixSection.innerHTML = `<p class="pix-missing">A pizzaria ainda não configurou uma chave Pix. Escolha outra forma de pagamento ou combine o Pix direto pelo WhatsApp.</p>`;
+      return;
+    }
+
+    const amount = grandTotal();
+    const payload = buildPixPayload({
+      key: pixKey,
+      name: storeInfo.pix_name || storeInfo.name,
+      city: storeInfo.pix_city,
+      amount,
+    });
+
+    pixSection.innerHTML = `
+      <div class="pix-box">
+        <div class="pix-qr" id="pix-qr"></div>
+        <p class="pix-amount">${cartFormatPrice(amount)}</p>
+        <label>Pix Copia e Cola</label>
+        <textarea id="pix-code" readonly rows="3"></textarea>
+        <button type="button" class="pix-copy-btn" id="pix-copy-btn">Copiar código Pix</button>
+        <p class="pix-hint">Abra o Pix no app do seu banco e cole o código — o valor já vem preenchido, é só confirmar.</p>
+      </div>
+    `;
+    document.getElementById("pix-code").value = payload;
+    renderPixQr(document.getElementById("pix-qr"), payload);
+    document.getElementById("pix-copy-btn").addEventListener("click", () => copyPixCode(payload));
+  }
+
+  function copyPixCode(payload) {
+    const finish = (ok) => {
+      const btn = document.getElementById("pix-copy-btn");
+      if (!btn) return;
+      btn.textContent = ok ? "Código copiado ✓" : "Não foi possível copiar, selecione e copie manualmente";
+      btn.classList.toggle("copied", ok);
+      setTimeout(() => {
+        const stillThere = document.getElementById("pix-copy-btn");
+        if (stillThere) {
+          stillThere.textContent = "Copiar código Pix";
+          stillThere.classList.remove("copied");
+        }
+      }, 1800);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(payload).then(() => finish(true)).catch(() => finish(false));
+    } else {
+      const codeEl = document.getElementById("pix-code");
+      codeEl.select();
+      try {
+        document.execCommand("copy");
+        finish(true);
+      } catch (error) {
+        finish(false);
+      }
+    }
   }
 
   const toggleTrocoField = () => {
@@ -188,9 +260,13 @@ function renderCart() {
     trocoResult.classList.remove("troco-warning");
   };
 
-  paymentSelect.addEventListener("change", toggleTrocoField);
+  paymentSelect.addEventListener("change", () => {
+    toggleTrocoField();
+    updatePixSection();
+  });
   trocoInput.addEventListener("input", updateTrocoResult);
   toggleTrocoField();
+  updatePixSection();
 
   document.getElementById("checkout-btn").addEventListener("click", (event) => {
     event.preventDefault();
