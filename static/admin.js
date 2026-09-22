@@ -657,7 +657,7 @@ function collectForm() {
     return { ...existing, name, password: password || "__unchanged__" };
   });
 
-  const pizza_sizes = [...document.querySelectorAll(".size-admin-card")].map((card) => {
+  const pizza_sizes = [...document.querySelectorAll("#sizes-list .size-admin-card")].map((card) => {
     const existing = (currentData.pizza_sizes || []).find((s) => String(s.id) === String(card.dataset.sizeId));
     const name = card.querySelector(".size-name").value.trim();
     if (!name) throw new Error("Todos os tamanhos de pizza precisam ter um nome.");
