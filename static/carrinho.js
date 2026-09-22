@@ -177,6 +177,14 @@ function renderCart() {
       return;
     }
 
+    // Se /static/pix.js ou /static/vendor/qrcode.js não carregaram (por
+    // exemplo, um deploy incompleto), cai aqui em vez de travar o resto
+    // do carrinho com um erro de JavaScript.
+    if (typeof buildPixPayload !== "function" || typeof renderPixQr !== "function") {
+      pixSection.innerHTML = `<p class="pix-missing">Não foi possível carregar o Pix agora. Escolha outra forma de pagamento ou combine o Pix direto pelo WhatsApp.</p>`;
+      return;
+    }
+
     const amount = grandTotal();
     const payload = buildPixPayload({
       key: pixKey,

@@ -1,5 +1,20 @@
 let currentData = null;
 
+/* Lê/escreve um campo do formulário só se ele existir na página. Evita que
+ * o painel inteiro quebre (bordas, pizzas, etc. pararem de carregar) se
+ * algum campo do HTML e do admin.js ficarem fora de sincronia — por
+ * exemplo, se o admin.html enviado ao servidor for uma versão mais antiga
+ * que o admin.js. */
+function setFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function getFieldValue(id, fallback = "") {
+  const el = document.getElementById(id);
+  return el ? el.value : fallback;
+}
+
 async function loadData() {
   try {
     const res = await fetch("/api/admin/data");
@@ -28,16 +43,16 @@ function escapeHTML(value) {
 
 function fillForm(data) {
   const { store, today_post, items } = data;
-  document.getElementById("hour-open").value = store.hours.open;
-  document.getElementById("hour-close").value = store.hours.close;
-  document.getElementById("store-address").value = store.address;
-  document.getElementById("store-delivery-time").value = store.delivery_time || "";
-  document.getElementById("store-min-order").value = store.min_order || "";
-  document.getElementById("store-whatsapp").value = store.whatsapp_number || "";
-  document.getElementById("store-pix-key").value = store.pix_key || "";
-  document.getElementById("store-pix-name").value = store.pix_name || "";
-  document.getElementById("store-pix-city").value = store.pix_city || "";
-  document.getElementById("store-print-token").value = store.print_agent_token || "";
+  setFieldValue("hour-open", store.hours.open);
+  setFieldValue("hour-close", store.hours.close);
+  setFieldValue("store-address", store.address);
+  setFieldValue("store-delivery-time", store.delivery_time || "");
+  setFieldValue("store-min-order", store.min_order || "");
+  setFieldValue("store-whatsapp", store.whatsapp_number || "");
+  setFieldValue("store-pix-key", store.pix_key || "");
+  setFieldValue("store-pix-name", store.pix_name || "");
+  setFieldValue("store-pix-city", store.pix_city || "");
+  setFieldValue("store-print-token", store.print_agent_token || "");
   setImagePreview("store-logo-preview", store.logo);
   setImagePreview("post-image-preview", today_post.image);
   setStatusButton(store.force_status);
@@ -678,7 +693,7 @@ function collectForm() {
   });
 
   return {
-    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, whatsapp_number: document.getElementById("store-whatsapp").value.trim(), pix_key: document.getElementById("store-pix-key").value.trim(), pix_name: document.getElementById("store-pix-name").value.trim(), pix_city: document.getElementById("store-pix-city").value.trim(), logo: currentData.store.logo || "", bordas },
+    store: { ...currentData.store, hours: { open: getFieldValue("hour-open").trim(), close: getFieldValue("hour-close").trim() }, force_status, address: getFieldValue("store-address").trim(), delivery_time: getFieldValue("store-delivery-time").trim(), min_order: parseFloat(getFieldValue("store-min-order")) || 0, whatsapp_number: getFieldValue("store-whatsapp").trim(), pix_key: getFieldValue("store-pix-key", currentData.store.pix_key || "").trim(), pix_name: getFieldValue("store-pix-name", currentData.store.pix_name || "").trim(), pix_city: getFieldValue("store-pix-city", currentData.store.pix_city || "").trim(), logo: currentData.store.logo || "", bordas },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
     promotions,
