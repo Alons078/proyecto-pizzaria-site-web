@@ -253,6 +253,36 @@ function cartAttachDeliveryFee({ deliverySelect, addressInput, mount, onChange }
   };
 }
 
+/*
+ * ---------- zona de entrega (Piscinão de Ramos / Ramos) ----------
+ * Em vez de um texto livre para o endereço, o cliente escolhe primeiro a
+ * zona (botões) e só depois aparece o campo de rua/número. O endereço
+ * final gravado no input hidden é "<rua>, <zona>", para que geocoding.py
+ * continue casando por substring ("ramos" / "piscinão de ramos").
+ */
+function cartAttachDeliveryZone(root) {
+  if (!root) return;
+  const buttons = root.querySelectorAll(".zone-option");
+  const wrap = root.querySelector(".zone-address-wrap");
+  const streetInput = root.querySelector(".zone-street-input");
+  const hiddenInput = root.querySelector(".zone-hidden-address");
+  let zone = "";
+  function sync() {
+    const street = streetInput ? streetInput.value.trim() : "";
+    hiddenInput.value = zone && street ? `${street}, ${zone}` : "";
+    hiddenInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      zone = btn.dataset.zone;
+      buttons.forEach((b) => b.classList.toggle("selected", b === btn));
+      if (wrap) wrap.style.display = "block";
+      sync();
+    });
+  });
+  if (streetInput) streetInput.addEventListener("input", sync);
+}
+
 /* Bolinha com a quantidade de itens no carrinho, mostrada perto da marca. */
 function cartUpdateBadge() {
   const badge = document.getElementById("cart-badge");

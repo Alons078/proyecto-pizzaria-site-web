@@ -496,7 +496,8 @@ header.top {
   cursor: pointer;
 }
 
-.flavor-option input[type="checkbox"] {
+.flavor-option input[type="checkbox"],
+.flavor-option input[type="radio"] {
   width: 18px;
   height: 18px;
   accent-color: var(--ember);

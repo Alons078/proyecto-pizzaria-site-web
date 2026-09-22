@@ -9,6 +9,7 @@ async function loadData() {
     currentData.promotions = Array.isArray(currentData.promotions) ? currentData.promotions : [];
     currentData.shifts = Array.isArray(currentData.shifts) ? currentData.shifts : [];
     currentData.pizza_sizes = Array.isArray(currentData.pizza_sizes) ? currentData.pizza_sizes : [];
+    currentData.store.bordas = Array.isArray(currentData.store.bordas) ? currentData.store.bordas : [];
     fillForm(currentData);
   } catch (error) {
     console.error(error);
@@ -42,6 +43,7 @@ function fillForm(data) {
   fillPromoList(data.promotions, items);
   fillShiftList(data.shifts);
   fillSizeList(data.pizza_sizes || []);
+  fillBordaList(store.bordas || []);
   fillItemList("pizzas-list", items.filter((i) => i.category === "pizza"));
   fillItemList("salgados-list", items.filter((i) => i.category === "salgado"));
   fillItemList("bebidas-list", items.filter((i) => i.category === "bebida"));
@@ -482,6 +484,44 @@ function removeSize(id) {
   fillForm(currentData);
 }
 
+function fillBordaList(bordas) {
+  const container = document.getElementById("bordas-list");
+  if (!container) return;
+  if (!bordas.length) {
+    container.innerHTML = `<div class="empty-items">Nenhuma borda cadastrada. Sem bordas, essa opção não aparece nas pizzas.</div>`;
+    return;
+  }
+  container.innerHTML = bordas.map((borda) => `
+    <div class="size-admin-card" data-borda-id="${escapeHTML(borda.id)}">
+      <div class="row">
+        <div class="field"><label>Nome</label><input type="text" class="borda-name" value="${escapeHTML(borda.name)}" placeholder="Ex.: Catupiry"></div>
+        <div class="field"><label>Preço adicional (R$)</label><input type="number" min="0" step="0.5" class="borda-price" value="${escapeHTML(borda.price)}" placeholder="Ex.: 10"></div>
+      </div>
+      <button type="button" class="delete-item-btn delete-borda-btn">Excluir borda</button>
+    </div>`).join("");
+
+  container.querySelectorAll(".delete-borda-btn").forEach((btn) => btn.addEventListener("click", () => removeBorda(btn.closest(".size-admin-card").dataset.bordaId)));
+}
+
+function addBorda() {
+  const bordas = currentData.store.bordas || [];
+  const ids = bordas.map((b) => Number(b.id)).filter(Number.isFinite);
+  const nextId = ids.length ? Math.max(...ids) + 1 : 1;
+  bordas.push({ id: nextId, name: "Nova borda", price: 0 });
+  currentData.store.bordas = bordas;
+  fillForm(currentData);
+  const card = document.querySelector(`.size-admin-card[data-borda-id="${nextId}"]`);
+  card?.scrollIntoView({ behavior: "smooth", block: "center" });
+  card?.querySelector(".borda-name")?.focus();
+}
+
+function removeBorda(id) {
+  const borda = (currentData.store.bordas || []).find((b) => String(b.id) === String(id));
+  if (!borda || !window.confirm(`Excluir a borda "${borda.name}"? Ela deixará de aparecer nas pizzas.`)) return;
+  currentData.store.bordas = currentData.store.bordas.filter((b) => String(b.id) !== String(id));
+  fillForm(currentData);
+}
+
 function formatPrice(value) {
   return `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
 }
@@ -576,6 +616,7 @@ document.querySelectorAll(".add-item-btn[data-category]").forEach((button) => bu
 document.querySelector(".add-promo-btn")?.addEventListener("click", addPromotion);
 document.querySelector(".add-shift-btn")?.addEventListener("click", addShift);
 document.getElementById("add-size-btn")?.addEventListener("click", addSize);
+document.getElementById("add-borda-btn")?.addEventListener("click", addBorda);
 document.getElementById("store-logo-file").addEventListener("change", async function () {
   await handleSingleImageUpload(this, (url) => { currentData.store.logo = url; }, "store-logo-preview", 1, "image/png");
 });
@@ -623,8 +664,18 @@ function collectForm() {
     return { ...existing, name, cm: parseInt(card.querySelector(".size-cm").value, 10) || 0, price: parseFloat(card.querySelector(".size-price").value) || 0 };
   });
 
+  const bordas = [...document.querySelectorAll("[data-borda-id]")].map((card) => {
+    const name = card.querySelector(".borda-name").value.trim();
+    if (!name) throw new Error("Todas as bordas precisam ter um nome.");
+    return {
+      id: card.dataset.bordaId,
+      name,
+      price: parseFloat(card.querySelector(".borda-price").value) || 0,
+    };
+  });
+
   return {
-    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, whatsapp_number: document.getElementById("store-whatsapp").value.trim(), logo: currentData.store.logo || "" },
+    store: { ...currentData.store, hours: { open: document.getElementById("hour-open").value.trim(), close: document.getElementById("hour-close").value.trim() }, force_status, address: document.getElementById("store-address").value.trim(), delivery_time: document.getElementById("store-delivery-time").value.trim(), min_order: parseFloat(document.getElementById("store-min-order").value) || 0, whatsapp_number: document.getElementById("store-whatsapp").value.trim(), logo: currentData.store.logo || "", bordas },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
     promotions,

@@ -23,6 +23,9 @@ let halfFlavor1Id = null; // primera mitad (puede ser el sabor actual u otro)
 let halfFlavor2Id = null; // segunda mitad
 let storeInfo = { whatsapp_number: "" };
 let buyNowFee = null; // controlador da taxa de entrega (ver cart.js)
+let updateBuyNowTroco = () => {}; // atualiza o resultado do troco (definida a cada render)
+let storeBordas = [];
+let selectedBordaId = null;
 
 async function loadProduct() {
   const container = document.getElementById("product-content");
@@ -40,6 +43,8 @@ async function loadProduct() {
     currentSizes = Array.isArray(data.pizza_sizes) ? data.pizza_sizes : [];
     if (currentSizes.length) selectedSizeId = currentSizes[0].id;
     storeInfo = data.store || {};
+    storeBordas = Array.isArray(data.store && data.store.bordas) ? data.store.bordas : [];
+    selectedBordaId = null;
 
     try {
       const siteData = await dataRes.json();
@@ -151,6 +156,28 @@ function renderProduct(item) {
   `;
   }
 
+  let bordaHTML = "";
+  if (currentItem.category === "pizza" && storeBordas.length) {
+    bordaHTML = `
+    <div class="flavor-block">
+      <label>Borda recheada</label>
+      <div class="flavor-options" id="borda-options">
+        <label class="flavor-option">
+          <input type="radio" name="borda" value="" ${selectedBordaId == null ? "checked" : ""}>
+          <span class="flavor-name">Sem borda</span>
+        </label>
+        ${storeBordas.map((borda) => `
+          <label class="flavor-option">
+            <input type="radio" name="borda" value="${escapeHTML(borda.id)}" ${String(selectedBordaId) === String(borda.id) ? "checked" : ""}>
+            <span class="flavor-name">Borda de ${escapeHTML(borda.name)}</span>
+            <span class="flavor-extra">+${cartFormatPrice(borda.price)}</span>
+          </label>
+        `).join("")}
+      </div>
+    </div>
+  `;
+  }
+
   container.innerHTML = `
     <div class="product-image">
       ${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>foto</span>`}
@@ -159,6 +186,7 @@ function renderProduct(item) {
     ${item.description ? `<p class="product-description">${escapeHTML(item.description)}</p>` : ""}
     ${sizesHTML}
     ${flavorsHTML}
+    ${bordaHTML}
     <div class="product-price" id="product-price"></div>
 
     <div class="qty-control">
@@ -186,8 +214,16 @@ function renderProduct(item) {
         </select>
       </div>
       <div class="checkout-field" id="buy-now-address-field">
-        <label>Endereço para entrega</label>
-        <input type="text" id="buy-now-address" placeholder="Rua, número, bairro">
+        <label>Bairro de entrega</label>
+        <div class="flavor-mode-options">
+          <button type="button" class="zone-option flavor-mode-btn" data-zone="Piscinão de Ramos">Piscinão de Ramos</button>
+          <button type="button" class="zone-option flavor-mode-btn" data-zone="Ramos">Ramos</button>
+        </div>
+        <div class="zone-address-wrap" style="display:none;">
+          <label>Seu endereço (rua, número)</label>
+          <input type="text" class="zone-street-input" placeholder="Rua, número">
+        </div>
+        <input type="hidden" class="zone-hidden-address" id="buy-now-address">
       </div>
       <div class="checkout-field" id="buy-now-fee-field"></div>
       <div class="checkout-field">
@@ -197,6 +233,11 @@ function renderProduct(item) {
           <option value="Cartão na entrega">Cartão na entrega</option>
           <option value="Pix">Pix</option>
         </select>
+      </div>
+      <div class="checkout-field" id="buy-now-troco-field">
+        <label>Troco para quanto? (opcional)</label>
+        <input type="number" id="buy-now-troco" placeholder="Ex.: 100" min="0" step="0.01" inputmode="decimal">
+        <p class="troco-result" id="buy-now-troco-result"></p>
       </div>
       <a href="#" class="checkout-btn" id="buy-now-confirm">📲 Confirmar pedido pelo WhatsApp</a>
       <p class="product-warning" id="buy-now-warning"></p>
@@ -235,6 +276,13 @@ function renderProduct(item) {
   if (half1) half1.addEventListener("change", onHalfFlavorChange);
   if (half2) half2.addEventListener("change", onHalfFlavorChange);
 
+  container.querySelectorAll('input[name="borda"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      selectedBordaId = input.value ? input.value : null;
+      updatePriceDisplay();
+    });
+  });
+
   document.getElementById("qty-minus").addEventListener("click", () => updateQty(-1));
   document.getElementById("qty-plus").addEventListener("click", () => updateQty(1));
   document.getElementById("add-to-cart-btn").addEventListener("click", addToCart);
@@ -248,12 +296,57 @@ function renderProduct(item) {
   deliverySelect.addEventListener("change", toggleAddressField);
   toggleAddressField();
 
+  cartAttachDeliveryZone(document.getElementById("buy-now-address-field"));
+
   buyNowFee = cartAttachDeliveryFee({
     deliverySelect,
     addressInput: document.getElementById("buy-now-address"),
     mount: document.getElementById("buy-now-fee-field"),
-    onChange: () => {},
+    onChange: () => updateBuyNowTroco(),
   });
+
+  const buyNowPaymentSelect = document.getElementById("buy-now-payment");
+  const buyNowTrocoField = document.getElementById("buy-now-troco-field");
+  const buyNowTrocoInput = document.getElementById("buy-now-troco");
+  const buyNowTrocoResult = document.getElementById("buy-now-troco-result");
+
+  const toggleBuyNowTrocoField = () => {
+    const isDinheiro = buyNowPaymentSelect.value === "Dinheiro";
+    buyNowTrocoField.style.display = isDinheiro ? "block" : "none";
+    if (!isDinheiro) {
+      buyNowTrocoInput.value = "";
+      buyNowTrocoResult.textContent = "";
+      buyNowTrocoResult.classList.remove("troco-warning");
+    }
+  };
+
+  function updateBuyNowTrocoResult() {
+    const raw = buyNowTrocoInput.value.trim();
+    const grandTotal = currentUnitPrice() * currentQty + (buyNowFee ? buyNowFee.feeAmount() : 0);
+    if (!raw) {
+      buyNowTrocoResult.textContent = "";
+      buyNowTrocoResult.classList.remove("troco-warning");
+      return;
+    }
+    const paidWith = Number(raw.replace(",", "."));
+    if (Number.isNaN(paidWith)) {
+      buyNowTrocoResult.textContent = "";
+      buyNowTrocoResult.classList.remove("troco-warning");
+      return;
+    }
+    if (paidWith < grandTotal) {
+      buyNowTrocoResult.textContent = `Valor menor que o total do pedido (${cartFormatPrice(grandTotal)}).`;
+      buyNowTrocoResult.classList.add("troco-warning");
+      return;
+    }
+    buyNowTrocoResult.textContent = `Troco: ${cartFormatPrice(paidWith - grandTotal)}`;
+    buyNowTrocoResult.classList.remove("troco-warning");
+  }
+
+  updateBuyNowTroco = updateBuyNowTrocoResult;
+  buyNowPaymentSelect.addEventListener("change", toggleBuyNowTrocoField);
+  buyNowTrocoInput.addEventListener("input", updateBuyNowTrocoResult);
+  toggleBuyNowTrocoField();
 
   document.getElementById("buy-now-confirm").addEventListener("click", buyNowConfirm);
 
@@ -279,6 +372,11 @@ function onHalfFlavorChange() {
   updatePriceDisplay();
 }
 
+function currentBorda() {
+  if (selectedBordaId == null) return null;
+  return storeBordas.find((b) => String(b.id) === String(selectedBordaId)) || null;
+}
+
 function currentUnitPrice() {
   let price = 0;
   if (currentSizes.length) {
@@ -300,6 +398,8 @@ function currentUnitPrice() {
       if (flavor) price += Number(flavor.promo_extra || 0);
     });
   }
+  const borda = currentBorda();
+  if (borda) price += Number(borda.price || 0);
   return price;
 }
 
@@ -319,15 +419,17 @@ function selectedFlavorItems() {
 function fullProductName() {
   const size = currentSize();
   const sizePart = size ? ` (${size.name} ${size.cm}cm)` : "";
+  const borda = currentBorda();
+  const bordaPart = borda ? ` + Borda de ${borda.name}` : "";
   if (flavorMode === "half" && halfFlavor1Id != null && halfFlavor2Id != null) {
     const f1 = currentAllItems.find((i) => Number(i.id) === Number(halfFlavor1Id));
     const f2 = currentAllItems.find((i) => Number(i.id) === Number(halfFlavor2Id));
     const n1 = f1 ? f1.name : currentItem.name;
     const n2 = f2 ? f2.name : currentItem.name;
-    if (n1 === n2) return `${n1}${sizePart}`;
-    return `Meia ${n1} / Meia ${n2}${sizePart}`;
+    if (n1 === n2) return `${n1}${sizePart}${bordaPart}`;
+    return `Meia ${n1} / Meia ${n2}${sizePart}${bordaPart}`;
   }
-  return `${currentItem.name}${sizePart}`;
+  return `${currentItem.name}${sizePart}${bordaPart}`;
 }
 
 function updateQty(delta) {
@@ -341,6 +443,7 @@ function updatePriceDisplay() {
   if (priceEl && currentItem) {
     priceEl.textContent = cartFormatPrice(currentUnitPrice() * currentQty);
   }
+  updateBuyNowTroco();
 }
 
 function addToCart() {
@@ -352,6 +455,9 @@ function addToCart() {
     key += `-meia-${ids.join("-")}`;
   } else if (selectedFlavorIds.length) {
     key += `-sab-${[...selectedFlavorIds].sort((a, b) => a - b).join("-")}`;
+  }
+  if (selectedBordaId != null) {
+    key += `-borda-${selectedBordaId}`;
   }
 
   cartAdd({
@@ -388,6 +494,7 @@ function buyNowConfirm(event) {
   const delivery = document.getElementById("buy-now-delivery").value;
   const address = document.getElementById("buy-now-address").value.trim();
   const payment = document.getElementById("buy-now-payment").value;
+  const trocoRaw = document.getElementById("buy-now-troco").value.trim();
 
   if (!customerName) {
     warningEl.textContent = "Digite seu nome para confirmar o pedido.";
@@ -405,15 +512,31 @@ function buyNowConfirm(event) {
     warningEl.textContent = "Toque em “Calcular taxa de entrega” antes de confirmar o pedido.";
     return;
   }
-  warningEl.textContent = "";
   const deliveryFee = buyNowFee ? buyNowFee.feeAmount() : 0;
 
   const unitPrice = currentUnitPrice();
   const total = unitPrice * currentQty + deliveryFee;   // total COM a taxa de entrega
+
+  let trocoPaidWith = null;
+  let trocoAmount = null;
+  if (payment === "Dinheiro" && trocoRaw) {
+    trocoPaidWith = Number(trocoRaw.replace(",", "."));
+    if (Number.isNaN(trocoPaidWith)) {
+      warningEl.textContent = "Digite um valor válido para o troco.";
+      return;
+    }
+    if (trocoPaidWith < total) {
+      warningEl.textContent = `O valor para troco precisa ser maior ou igual ao total (${cartFormatPrice(total)}).`;
+      return;
+    }
+    trocoAmount = trocoPaidWith - total;
+  }
+  warningEl.textContent = "";
+
   const cartLine = [{ name: fullProductName(), qty: currentQty, unit_price: unitPrice }];
   const checkout = {
     name: customerName, delivery, address, payment,
-    notes: "", trocoPaidWith: null, trocoAmount: null,
+    notes: "", trocoPaidWith, trocoAmount,
     deliveryFeeText: buyNowFee ? buyNowFee.feeText() : null,
   };
 
