@@ -239,6 +239,30 @@ header.top {
   color: var(--ember);
 }
 
+.sold-out-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: var(--tomato);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  z-index: 1;
+}
+
+.card.is-sold-out,
+.highlight-card.is-sold-out {
+  opacity: 0.55;
+}
+
+.card.is-sold-out .card-cta {
+  color: var(--ink-soft);
+}
+
 /* ---------- carrinho ---------- */
 
 .cart-link {
@@ -285,6 +309,7 @@ header.top {
 }
 
 .product-image {
+  position: relative;
   width: 100%;
   aspect-ratio: 4 / 3;
   border-radius: 16px;
@@ -298,6 +323,23 @@ header.top {
   font-family: var(--font-mono);
   font-size: 13px;
   margin-bottom: 20px;
+}
+
+.sold-out-notice {
+  background: rgba(230, 57, 70, 0.08);
+  border: 1px solid rgba(230, 57, 70, 0.35);
+  color: var(--tomato);
+  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin: 0 0 18px;
+}
+
+.add-to-cart-btn:disabled,
+.buy-now-btn:disabled,
+.qty-control button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .product-image img {
@@ -1107,6 +1149,31 @@ footer.foot {
   background: rgba(230, 57, 70, 0.08);
 }
 
+.availability-toggle-btn {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(45, 166, 95, 0.45);
+  background: rgba(45, 166, 95, 0.1);
+  color: #1f8a4c;
+  cursor: pointer;
+}
+
+.availability-toggle-btn.is-sold-out {
+  border-color: rgba(230, 57, 70, 0.45);
+  background: rgba(230, 57, 70, 0.08);
+  color: var(--tomato);
+}
+
+.item-row.is-unavailable {
+  opacity: 0.6;
+  background: rgba(230, 57, 70, 0.04);
+  border-radius: 12px;
+}
+
 .empty-items {
   padding: 14px 0;
   color: var(--ink-soft);
@@ -1739,6 +1806,7 @@ footer.foot {
 }
 
 .highlight-card .thumb {
+  position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
   border-radius: 12px;

@@ -57,7 +57,7 @@ function currentBorda() {
 function renderPromotion(promo, items) {
   const container = document.getElementById("promo-content");
   const slots = (promo.slots || []).map((slot, index) => {
-    const options = items.filter((item) => item.category === slot.category);
+    const options = items.filter((item) => item.category === slot.category && item.available !== false);
     return `<div class="promo-slot-block">
       <label>${escapeHTML(slot.label || `Escolha ${index + 1}`)}</label>
       <select class="promo-select" data-slot-index="${index}" data-category="${escapeHTML(slot.category)}">
