@@ -926,6 +926,56 @@ footer.foot {
   color: var(--ink);
 }
 
+/* ---------- painéis colapsáveis (admin) ---------- */
+
+.panel-toggle-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+h2.panel-toggle-heading {
+  justify-content: space-between;
+}
+
+.panel-heading-row > .panel-toggle-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-toggle-heading:hover {
+  color: var(--ember-dark);
+}
+
+.panel-toggle-chevron {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+}
+
+.panel.is-collapsed .panel-toggle-chevron {
+  transform: rotate(-90deg);
+}
+
+.panel-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.32s ease;
+}
+
+.panel-body-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.panel.is-collapsed .panel-body {
+  grid-template-rows: 0fr;
+}
+
 .field {
   display: flex;
   flex-direction: column;

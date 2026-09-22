@@ -15,6 +15,107 @@ function getFieldValue(id, fallback = "") {
   return el ? el.value : fallback;
 }
 
+/* Painéis colapsáveis: cada <section class="panel"> pode ser fechado
+ * clicando no título, pra página não ficar gigante com o cardápio inteiro
+ * sempre aberto. Não mexe no HTML original — só pega o que já existe
+ * depois do título (h2 ou .panel-heading-row) e empacota numa "gaveta"
+ * que anima ao abrir/fechar. Os IDs de dentro (pizzas-list, etc.)
+ * continuam os mesmos, então o resto do admin.js nem percebe a mudança.
+ * Lembra o que o admin deixou aberto/fechado entre uma visita e outra. */
+const PANEL_COLLAPSE_STORAGE_KEY = "rey-admin-panel-collapse-v1";
+
+// Cardápio, promoções e vendas tendem a ficar compridos — começam fechados
+// na primeira visita. O resto (loja, bordas, etc.) começa aberto.
+const PANEL_DEFAULT_COLLAPSED = [
+  "cardapio-pizzas",
+  "cardapio-salgados",
+  "cardapio-bebidas",
+  "promocoes",
+  "vendas-dos-funcionarios",
+];
+
+function slugifyPanelId(text) {
+  return String(text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function initCollapsiblePanels() {
+  let savedState = {};
+  try {
+    savedState = JSON.parse(localStorage.getItem(PANEL_COLLAPSE_STORAGE_KEY) || "{}");
+  } catch (_) {
+    savedState = {};
+  }
+
+  document.querySelectorAll("main.wrap > .panel").forEach((panel, index) => {
+    const headerRow = panel.querySelector(":scope > h2, :scope > .panel-heading-row");
+    if (!headerRow) return;
+
+    const isRow = headerRow.classList.contains("panel-heading-row");
+    const heading = isRow ? headerRow.querySelector("h2") : headerRow;
+    if (!heading) return;
+
+    const panelId = slugifyPanelId(heading.textContent) || `panel-${index}`;
+
+    // Empacota tudo que vem depois do título numa "gaveta" que anima.
+    const body = document.createElement("div");
+    body.className = "panel-body";
+    const inner = document.createElement("div");
+    inner.className = "panel-body-inner";
+    body.appendChild(inner);
+    let node = headerRow.nextSibling;
+    while (node) {
+      const next = node.nextSibling;
+      inner.appendChild(node);
+      node = next;
+    }
+    panel.appendChild(body);
+
+    // Vira o clique só na área do título (não no botão "+ Adicionar", que
+    // continua funcionando normal do lado dele).
+    let toggleTarget = heading;
+    if (isRow) {
+      toggleTarget = document.createElement("div");
+      toggleTarget.className = "panel-toggle-heading";
+      headerRow.insertBefore(toggleTarget, heading);
+      toggleTarget.appendChild(heading);
+    } else {
+      heading.classList.add("panel-toggle-heading");
+    }
+    toggleTarget.setAttribute("role", "button");
+    toggleTarget.setAttribute("tabindex", "0");
+
+    const chevron = document.createElement("span");
+    chevron.className = "panel-toggle-chevron";
+    chevron.textContent = "▾";
+    toggleTarget.appendChild(chevron);
+
+    function setCollapsed(collapsed) {
+      panel.classList.toggle("is-collapsed", collapsed);
+      toggleTarget.setAttribute("aria-expanded", String(!collapsed));
+      savedState[panelId] = collapsed;
+      try {
+        localStorage.setItem(PANEL_COLLAPSE_STORAGE_KEY, JSON.stringify(savedState));
+      } catch (_) { /* localStorage indisponível — só não lembra a preferência */ }
+    }
+
+    toggleTarget.addEventListener("click", () => setCollapsed(!panel.classList.contains("is-collapsed")));
+    toggleTarget.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      setCollapsed(!panel.classList.contains("is-collapsed"));
+    });
+
+    const startCollapsed = panelId in savedState ? savedState[panelId] : PANEL_DEFAULT_COLLAPSED.includes(panelId);
+    panel.classList.toggle("is-collapsed", startCollapsed);
+    toggleTarget.setAttribute("aria-expanded", String(!startCollapsed));
+  });
+}
+
 async function loadData() {
   try {
     const res = await fetch("/api/admin/data");
@@ -786,5 +887,6 @@ document.getElementById("print-token-regenerate-btn").addEventListener("click", 
 });
 
 setupCropper();
+initCollapsiblePanels();
 loadData();
 loadSales();
