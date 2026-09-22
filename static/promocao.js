@@ -20,9 +20,6 @@ let currentItems = [];
 let currentQty = 1;
 let storeInfo = { whatsapp_number: "" };
 let buyNowFee = null; // controlador da taxa de entrega (ver cart.js)
-let updateBuyNowTroco = () => {}; // atualiza o resultado do troco (definida a cada render)
-let storeBordas = [];
-let selectedBordaId = null;
 
 async function loadPromotion() {
   const container = document.getElementById("promo-content");
@@ -36,22 +33,11 @@ async function loadPromotion() {
     currentPromo = data.promotion;
     currentItems = data.items;
     storeInfo = data.store || {};
-    storeBordas = Array.isArray(data.store && data.store.bordas) ? data.store.bordas : [];
-    selectedBordaId = null;
     renderPromotion(currentPromo, currentItems);
   } catch (error) {
     console.error(error);
     container.innerHTML = `<p class="product-warning">Não foi possível carregar a promoção.</p>`;
   }
-}
-
-function promoIncludesPizza(promo) {
-  return (promo.slots || []).some((s) => s.category === "pizza");
-}
-
-function currentBorda() {
-  if (selectedBordaId == null) return null;
-  return storeBordas.find((b) => String(b.id) === String(selectedBordaId)) || null;
 }
 
 function renderPromotion(promo, items) {
@@ -67,28 +53,6 @@ function renderPromotion(promo, items) {
     </div>`;
   }).join("");
 
-  let bordaHTML = "";
-  if (promoIncludesPizza(promo) && storeBordas.length) {
-    bordaHTML = `
-    <div class="flavor-block">
-      <label>Borda recheada</label>
-      <div class="flavor-options" id="borda-options">
-        <label class="flavor-option">
-          <input type="radio" name="borda" value="" ${selectedBordaId == null ? "checked" : ""}>
-          <span class="flavor-name">Sem borda</span>
-        </label>
-        ${storeBordas.map((borda) => `
-          <label class="flavor-option">
-            <input type="radio" name="borda" value="${escapeHTML(borda.id)}" ${String(selectedBordaId) === String(borda.id) ? "checked" : ""}>
-            <span class="flavor-name">Borda de ${escapeHTML(borda.name)}</span>
-            <span class="flavor-extra">+${cartFormatPrice(borda.price)}</span>
-          </label>
-        `).join("")}
-      </div>
-    </div>
-  `;
-  }
-
   container.innerHTML = `
     <div class="product-image">
       ${promo.image ? `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">` : `<span>foto</span>`}
@@ -97,7 +61,6 @@ function renderPromotion(promo, items) {
     ${promo.description ? `<p class="product-description">${escapeHTML(promo.description)}</p>` : ""}
 
     <div class="promo-choices">${slots}</div>
-    ${bordaHTML}
 
     <div class="qty-control">
       <button type="button" id="qty-minus" aria-label="Diminuir quantidade">−</button>
@@ -127,16 +90,8 @@ function renderPromotion(promo, items) {
         </select>
       </div>
       <div class="checkout-field" id="buy-now-address-field">
-        <label>Bairro de entrega</label>
-        <div class="flavor-mode-options">
-          <button type="button" class="zone-option flavor-mode-btn" data-zone="Piscinão de Ramos">Piscinão de Ramos</button>
-          <button type="button" class="zone-option flavor-mode-btn" data-zone="Ramos">Ramos</button>
-        </div>
-        <div class="zone-address-wrap" style="display:none;">
-          <label>Seu endereço (rua, número)</label>
-          <input type="text" class="zone-street-input" placeholder="Rua, número">
-        </div>
-        <input type="hidden" class="zone-hidden-address" id="buy-now-address">
+        <label>Endereço para entrega</label>
+        <input type="text" id="buy-now-address" placeholder="Rua, número, bairro">
       </div>
       <div class="checkout-field" id="buy-now-fee-field"></div>
       <div class="checkout-field">
@@ -147,11 +102,6 @@ function renderPromotion(promo, items) {
           <option value="Pix">Pix</option>
         </select>
       </div>
-      <div class="checkout-field" id="buy-now-troco-field">
-        <label>Troco para quanto? (opcional)</label>
-        <input type="number" id="buy-now-troco" placeholder="Ex.: 100" min="0" step="0.01" inputmode="decimal">
-        <p class="troco-result" id="buy-now-troco-result"></p>
-      </div>
       <a href="#" class="checkout-btn" id="buy-now-confirm">📲 Confirmar pedido pelo WhatsApp</a>
       <p class="product-warning" id="buy-now-warning"></p>
     </div>
@@ -159,12 +109,6 @@ function renderPromotion(promo, items) {
 
   const selects = [...container.querySelectorAll(".promo-select")];
   selects.forEach((select) => select.addEventListener("change", updatePromoState));
-  container.querySelectorAll('input[name="borda"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      selectedBordaId = input.value ? input.value : null;
-      updatePromoState();
-    });
-  });
   document.getElementById("qty-minus").addEventListener("click", () => updateQty(-1));
   document.getElementById("qty-plus").addEventListener("click", () => updateQty(1));
   document.getElementById("add-to-cart-btn").addEventListener("click", addToCart);
@@ -178,57 +122,12 @@ function renderPromotion(promo, items) {
   deliverySelect.addEventListener("change", toggleAddressField);
   toggleAddressField();
 
-  cartAttachDeliveryZone(document.getElementById("buy-now-address-field"));
-
   buyNowFee = cartAttachDeliveryFee({
     deliverySelect,
     addressInput: document.getElementById("buy-now-address"),
     mount: document.getElementById("buy-now-fee-field"),
-    onChange: () => updateBuyNowTroco(),
+    onChange: () => {},
   });
-
-  const buyNowPaymentSelect = document.getElementById("buy-now-payment");
-  const buyNowTrocoField = document.getElementById("buy-now-troco-field");
-  const buyNowTrocoInput = document.getElementById("buy-now-troco");
-  const buyNowTrocoResult = document.getElementById("buy-now-troco-result");
-
-  const toggleBuyNowTrocoField = () => {
-    const isDinheiro = buyNowPaymentSelect.value === "Dinheiro";
-    buyNowTrocoField.style.display = isDinheiro ? "block" : "none";
-    if (!isDinheiro) {
-      buyNowTrocoInput.value = "";
-      buyNowTrocoResult.textContent = "";
-      buyNowTrocoResult.classList.remove("troco-warning");
-    }
-  };
-
-  function updateBuyNowTrocoResult() {
-    const raw = buyNowTrocoInput.value.trim();
-    const grandTotal = currentUnitPrice() * currentQty + (buyNowFee ? buyNowFee.feeAmount() : 0);
-    if (!raw) {
-      buyNowTrocoResult.textContent = "";
-      buyNowTrocoResult.classList.remove("troco-warning");
-      return;
-    }
-    const paidWith = Number(raw.replace(",", "."));
-    if (Number.isNaN(paidWith)) {
-      buyNowTrocoResult.textContent = "";
-      buyNowTrocoResult.classList.remove("troco-warning");
-      return;
-    }
-    if (paidWith < grandTotal) {
-      buyNowTrocoResult.textContent = `Valor menor que o total do pedido (${cartFormatPrice(grandTotal)}).`;
-      buyNowTrocoResult.classList.add("troco-warning");
-      return;
-    }
-    buyNowTrocoResult.textContent = `Troco: ${cartFormatPrice(paidWith - grandTotal)}`;
-    buyNowTrocoResult.classList.remove("troco-warning");
-  }
-
-  updateBuyNowTroco = updateBuyNowTrocoResult;
-  buyNowPaymentSelect.addEventListener("change", toggleBuyNowTrocoField);
-  buyNowTrocoInput.addEventListener("input", updateBuyNowTrocoResult);
-  toggleBuyNowTrocoField();
 
   document.getElementById("buy-now-confirm").addEventListener("click", buyNowConfirm);
 
@@ -243,8 +142,6 @@ function currentUnitPrice() {
     const item = currentItems.find((i) => String(i.id) === String(select.value));
     total += Number(item?.promo_extra || 0);
   });
-  const borda = currentBorda();
-  if (borda) total += Number(borda.price || 0);
   return total;
 }
 
@@ -262,7 +159,6 @@ function updatePromoState() {
 
   priceEl.textContent = cartFormatPrice(currentUnitPrice() * currentQty);
   warningEl.textContent = complete ? "" : "Selecione todas as opções para adicionar ao carrinho.";
-  updateBuyNowTroco();
   if (btn) {
     btn.disabled = !complete;
     btn.style.opacity = complete ? "1" : "0.5";
@@ -290,12 +186,8 @@ function addToCart() {
     return item ? item.name : "";
   }).filter(Boolean);
 
-  const borda = currentBorda();
-  if (borda) chosenNames.push(`Borda de ${borda.name}`);
-
   const unitPrice = currentUnitPrice();
-  let choiceKey = selects.map((s) => s.value).join("-");
-  if (selectedBordaId != null) choiceKey += `-borda-${selectedBordaId}`;
+  const choiceKey = selects.map((s) => s.value).join("-");
 
   cartAdd({
     key: `promo-${currentPromo.id}-${choiceKey}`,
@@ -334,7 +226,6 @@ function buyNowConfirm(event) {
   const delivery = document.getElementById("buy-now-delivery").value;
   const address = document.getElementById("buy-now-address").value.trim();
   const payment = document.getElementById("buy-now-payment").value;
-  const trocoRaw = document.getElementById("buy-now-troco").value.trim();
 
   if (!customerName) {
     warningEl.textContent = "Digite seu nome para confirmar o pedido.";
@@ -352,6 +243,7 @@ function buyNowConfirm(event) {
     warningEl.textContent = "Toque em “Calcular taxa de entrega” antes de confirmar o pedido.";
     return;
   }
+  warningEl.textContent = "";
   const deliveryFee = buyNowFee ? buyNowFee.feeAmount() : 0;
 
   const selects = [...document.querySelectorAll(".promo-select")];
@@ -360,9 +252,6 @@ function buyNowConfirm(event) {
     return item ? item.name : "";
   }).filter(Boolean);
 
-  const borda = currentBorda();
-  if (borda) chosenNames.push(`Borda de ${borda.name}`);
-
   const unitPrice = currentUnitPrice();
   const line = {
     name: `${currentPromo.name} (${chosenNames.join(", ")})`,
@@ -370,31 +259,14 @@ function buyNowConfirm(event) {
     unit_price: unitPrice,
   };
   const total = unitPrice * currentQty + deliveryFee;   // total COM a taxa de entrega
-
-  let trocoPaidWith = null;
-  let trocoAmount = null;
-  if (payment === "Dinheiro" && trocoRaw) {
-    trocoPaidWith = Number(trocoRaw.replace(",", "."));
-    if (Number.isNaN(trocoPaidWith)) {
-      warningEl.textContent = "Digite um valor válido para o troco.";
-      return;
-    }
-    if (trocoPaidWith < total) {
-      warningEl.textContent = `O valor para troco precisa ser maior ou igual ao total (${cartFormatPrice(total)}).`;
-      return;
-    }
-    trocoAmount = trocoPaidWith - total;
-  }
-  warningEl.textContent = "";
-
   const checkout = {
     name: customerName,
     delivery,
     address,
     payment,
     notes: "",
-    trocoPaidWith,
-    trocoAmount,
+    trocoPaidWith: null,
+    trocoAmount: null,
     deliveryFeeText: buyNowFee ? buyNowFee.feeText() : null,
   };
 
