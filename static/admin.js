@@ -348,8 +348,13 @@ function fillItemList(elementId, list) {
     container.innerHTML = `<div class="empty-items">Nenhum produto cadastrado.</div>`;
     return;
   }
-  container.innerHTML = list.map((item) => `
-    <div class="item-row" data-id="${escapeHTML(item.id)}">
+  container.innerHTML = list.map((item) => {
+    const isAvailable = item.available !== false;
+    return `
+    <div class="item-row${isAvailable ? "" : " is-unavailable"}" data-id="${escapeHTML(item.id)}">
+      <button type="button" class="availability-toggle-btn${isAvailable ? "" : " is-sold-out"}" data-id="${escapeHTML(item.id)}">
+        ${isAvailable ? "🟢 Disponível — clique para marcar como esgotado" : "🔴 Esgotado — clique para disponibilizar de novo"}
+      </button>
       <div class="field item-name-field"><label>Nome</label><input type="text" class="item-name-input" value="${escapeHTML(item.name)}" placeholder="Nome do produto"></div>
       <div class="field"><label>Preço (R$)</label><input type="number" min="0" step="0.5" class="item-price" value="${escapeHTML(item.price)}"></div>
       <div class="field"><label>Extra por sabor (R$)</label><input type="number" min="0" step="0.5" class="item-promo-extra" value="${escapeHTML(item.promo_extra || 0)}"><small>Valor somado quando este produto for escolhido numa promoção, ou como sabor adicional na página de outra pizza.</small></div>
@@ -357,9 +362,11 @@ function fillItemList(elementId, list) {
       <div class="field item-description-field"><label>Comentário / descrição</label><textarea class="item-description" placeholder="Ex.: Molho de tomate, mussarela e manjericão">${escapeHTML(item.description || "")}</textarea></div>
       <label class="item-featured-field"><input type="checkbox" class="item-featured" ${item.featured ? "checked" : ""}> Destacar em "Mais pedidos"</label>
       <button type="button" class="delete-item-btn" data-id="${escapeHTML(item.id)}">Excluir produto</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 
   container.querySelectorAll(".delete-item-btn").forEach((button) => button.addEventListener("click", () => removeItem(Number(button.dataset.id))));
+  container.querySelectorAll(".availability-toggle-btn").forEach((button) => button.addEventListener("click", () => toggleItemAvailability(Number(button.dataset.id))));
   container.querySelectorAll(".item-image-file").forEach((input) => input.addEventListener("change", async () => {
     const row = input.closest(".item-row");
     const id = Number(row.dataset.id);
@@ -370,6 +377,36 @@ function fillItemList(elementId, list) {
     const item = currentData.items.find((entry) => Number(entry.id) === id);
     if (item?.image) row.querySelector(".item-image-preview").innerHTML = `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">`;
   }));
+}
+
+async function toggleItemAvailability(id) {
+  const item = currentData.items.find((entry) => Number(entry.id) === id);
+  if (!item) return;
+  const nextAvailable = !(item.available !== false);
+  try {
+    const res = await fetch(`/api/admin/item/${id}/disponibilidade`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ available: nextAvailable }),
+    });
+    if (!res.ok) throw new Error("O servidor recusou a alteração.");
+    item.available = nextAvailable;
+    // Só atualiza esse botão e essa linha na tela — não re-renderiza o
+    // formulário inteiro, pra não perder alterações não salvas em outros campos.
+    const row = document.querySelector(`.item-row[data-id="${id}"]`);
+    const button = row?.querySelector(".availability-toggle-btn");
+    if (row) row.classList.toggle("is-unavailable", !nextAvailable);
+    if (button) {
+      button.classList.toggle("is-sold-out", !nextAvailable);
+      button.textContent = nextAvailable
+        ? "🟢 Disponível — clique para marcar como esgotado"
+        : "🔴 Esgotado — clique para disponibilizar de novo";
+    }
+    showToast(nextAvailable ? "Produto disponível de novo" : "Produto marcado como esgotado");
+  } catch (error) {
+    console.error(error);
+    showToast("Erro ao alterar a disponibilidade");
+  }
 }
 
 function categoryLabel(category) {

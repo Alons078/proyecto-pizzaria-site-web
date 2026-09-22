@@ -110,9 +110,10 @@ function fillMaisPedidos(items, pizzaSizes) {
 
   section.classList.remove("is-empty");
   row.innerHTML = featured.map((item, index) => `
-    <a class="highlight-card reveal" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
+    <a class="highlight-card reveal${item.available === false ? " is-sold-out" : ""}" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
       <div class="thumb">
         ${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>foto</span>`}
+        ${item.available === false ? `<span class="sold-out-badge">Esgotado</span>` : ""}
       </div>
       <div class="name">${escapeHTML(item.name)}</div>
       <div class="price">${itemPriceLabel(item, pizzaSizes)}</div>
@@ -159,15 +160,17 @@ function fillGrid(elementId, list, pizzaSizes) {
   const grid = document.getElementById(elementId);
 
   grid.innerHTML = list
-    .map(
-      (item, index) => `
-    <a class="card reveal" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
+    .map((item, index) => {
+      const soldOut = item.available === false;
+      return `
+    <a class="card reveal${soldOut ? " is-sold-out" : ""}" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
       <div class="image-slot small">
         ${
           item.image
             ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">`
             : `<span>foto</span>`
         }
+        ${soldOut ? `<span class="sold-out-badge">Esgotado</span>` : ""}
       </div>
       <div class="name">${escapeHTML(item.name)}</div>
       ${
@@ -176,9 +179,9 @@ function fillGrid(elementId, list, pizzaSizes) {
           : ""
       }
       <div class="price">${itemPriceLabel(item, pizzaSizes)}</div>
-      <span class="card-cta">Ver e pedir →</span>
-    </a>`
-    )
+      <span class="card-cta">${soldOut ? "Esgotado no momento" : "Ver e pedir →"}</span>
+    </a>`;
+    })
     .join("");
 
   setupScrollReveal();

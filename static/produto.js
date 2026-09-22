@@ -80,13 +80,15 @@ function currentSize() {
 
 function pizzaFlavorOptions() {
   if (!currentItem || currentItem.category !== "pizza") return [];
-  // Todas las pizzas (incluido el sabor actual) para poder elegir en meia a meia
-  return currentAllItems.filter((i) => i.category === "pizza");
+  // Todas as pizzas disponíveis (incluído o sabor atual, mesmo que ele
+  // esteja esgotado) para poder escolher na meia a meia. Sabores esgotados
+  // de outras pizzas não entram na lista, pra não vender o que não tem.
+  return currentAllItems.filter((i) => i.category === "pizza" && (i.available !== false || i.id === currentItem.id));
 }
 
 function otherPizzaFlavors() {
   if (!currentItem || currentItem.category !== "pizza") return [];
-  return currentAllItems.filter((i) => i.category === "pizza" && i.id !== currentItem.id);
+  return currentAllItems.filter((i) => i.category === "pizza" && i.id !== currentItem.id && i.available !== false);
 }
 
 function renderProduct(item) {
@@ -178,26 +180,30 @@ function renderProduct(item) {
   `;
   }
 
+  const soldOut = item.available === false;
+
   container.innerHTML = `
     <div class="product-image">
       ${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>foto</span>`}
+      ${soldOut ? `<span class="sold-out-badge">Esgotado</span>` : ""}
     </div>
     <h1 class="product-title">${escapeHTML(item.name)}</h1>
     ${item.description ? `<p class="product-description">${escapeHTML(item.description)}</p>` : ""}
+    ${soldOut ? `<p class="sold-out-notice">Esse produto está esgotado no momento. Volte mais tarde para pedir.</p>` : ""}
     ${sizesHTML}
     ${flavorsHTML}
     ${bordaHTML}
     <div class="product-price" id="product-price"></div>
 
     <div class="qty-control">
-      <button type="button" id="qty-minus" aria-label="Diminuir quantidade">−</button>
+      <button type="button" id="qty-minus" aria-label="Diminuir quantidade" ${soldOut ? "disabled" : ""}>−</button>
       <span class="qty-value" id="qty-value">${currentQty}</span>
-      <button type="button" id="qty-plus" aria-label="Aumentar quantidade">+</button>
+      <button type="button" id="qty-plus" aria-label="Aumentar quantidade" ${soldOut ? "disabled" : ""}>+</button>
     </div>
 
     <div class="product-actions">
-      <button type="button" class="add-to-cart-btn" id="add-to-cart-btn">Adicionar ao carrinho</button>
-      <button type="button" class="buy-now-btn" id="buy-now-btn">📲 Pagar agora</button>
+      <button type="button" class="add-to-cart-btn" id="add-to-cart-btn" ${soldOut ? "disabled" : ""}>${soldOut ? "Produto esgotado" : "Adicionar ao carrinho"}</button>
+      <button type="button" class="buy-now-btn" id="buy-now-btn" ${soldOut ? "disabled" : ""}>📲 Pagar agora</button>
     </div>
 
     <div class="inline-checkout" id="inline-checkout" style="display:none;">
@@ -471,6 +477,7 @@ function buildCartEntry() {
 }
 
 function addToCart() {
+  if (currentItem?.available === false) return;
   cartAdd(buildCartEntry());
 
   const btn = document.getElementById("add-to-cart-btn");
@@ -483,6 +490,7 @@ function addToCart() {
  * escolhidos) ao carrinho e leva o cliente direto pra página do carrinho,
  * já com tudo lá dentro, pra finalizar o pedido por lá. */
 function goToCartToPay() {
+  if (currentItem?.available === false) return;
   cartAdd(buildCartEntry());
   window.location.href = "/carrinho";
 }
