@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS store (
     min_order REAL NOT NULL DEFAULT 0,
     whatsapp_number TEXT NOT NULL DEFAULT '',
     print_agent_token TEXT NOT NULL DEFAULT '',
-    bordas TEXT NOT NULL DEFAULT '[]'
+    bordas TEXT NOT NULL DEFAULT '[]',
+    pix_key TEXT NOT NULL DEFAULT '',
+    pix_name TEXT NOT NULL DEFAULT '',
+    pix_city TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS today_post (
@@ -149,6 +152,15 @@ def init_db():
         conn.commit()
     if "bordas" not in existing_columns:
         conn.execute("ALTER TABLE store ADD COLUMN bordas TEXT NOT NULL DEFAULT '[]'")
+        conn.commit()
+    if "pix_key" not in existing_columns:
+        conn.execute("ALTER TABLE store ADD COLUMN pix_key TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    if "pix_name" not in existing_columns:
+        conn.execute("ALTER TABLE store ADD COLUMN pix_name TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    if "pix_city" not in existing_columns:
+        conn.execute("ALTER TABLE store ADD COLUMN pix_city TEXT NOT NULL DEFAULT ''")
         conn.commit()
 
     # Troco (vuelto): colunas novas na tabela orders, para bancos criados
@@ -357,6 +369,9 @@ def load_data():
         "whatsapp_number": store_row["whatsapp_number"],
         "print_agent_token": store_row["print_agent_token"],
         "bordas": _load_bordas(store_row),
+        "pix_key": store_row["pix_key"],
+        "pix_name": store_row["pix_name"],
+        "pix_city": store_row["pix_city"],
     } if store_row else {}
 
     today_post = {
@@ -436,8 +451,8 @@ def save_menu_data(new_data):
         hours = store.get("hours", {})
         conn.execute(
             """INSERT OR REPLACE INTO store
-            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number, print_agent_token, bordas)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (id, name, logo, address, hours_open, hours_close, force_status, delivery_time, min_order, whatsapp_number, print_agent_token, bordas, pix_key, pix_name, pix_city)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 store.get("name", ""),
                 store.get("logo", ""),
@@ -450,6 +465,9 @@ def save_menu_data(new_data):
                 store.get("whatsapp_number", ""),
                 store.get("print_agent_token", ""),
                 json.dumps(store.get("bordas") if isinstance(store.get("bordas"), list) else [], ensure_ascii=False),
+                store.get("pix_key", ""),
+                store.get("pix_name", ""),
+                store.get("pix_city", ""),
             ),
         )
 
