@@ -66,7 +66,14 @@ def check_shift_password(stored, plain):
 app = Flask(__name__)
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER = os.path.join(BASE_PATH, "static", "uploads")
+BUNDLED_UPLOAD_FOLDER = os.path.join(BASE_PATH, "static", "uploads")
+# Fotos novas vão para o disco persistente (DATA_DIR/uploads); sem DATA_DIR,
+# continuam em static/uploads como antes.
+UPLOAD_FOLDER = (
+    os.path.join(db.DATA_DIR, "uploads")
+    if db.DATA_DIR != BASE_PATH
+    else BUNDLED_UPLOAD_FOLDER
+)
 
 # Limite de 8 MB por arquivo enviado.
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
@@ -90,6 +97,17 @@ if not geocoding.is_configured():
           "automática fica desligada (o pedido segue com 'taxa a combinar').")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+@app.route("/static/uploads/<path:filename>")
+def serve_upload(filename):
+    """Serve as fotos: primeiro do disco persistente e, se não achar, das
+    fotos que já vêm junto com o projeto (as antigas continuam funcionando)."""
+    from flask import send_from_directory
+    path = os.path.join(UPLOAD_FOLDER, filename)
+    if os.path.isfile(path):
+        return send_from_directory(UPLOAD_FOLDER, filename)
+    return send_from_directory(BUNDLED_UPLOAD_FOLDER, filename)
 
 
 db.init_db()

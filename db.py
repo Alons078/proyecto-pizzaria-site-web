@@ -20,7 +20,14 @@ import json
 import os
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_PATH, "pizzaria.db")
+
+# Pasta onde ficam os dados que NÃO podem se perder (banco e fotos enviadas).
+# No Render, defina DATA_DIR=/var/data (o Mount Path do Persistent Disk).
+# Sem a variável, usa a pasta do projeto, como antes (bom para rodar local).
+DATA_DIR = os.environ.get("DATA_DIR") or BASE_PATH
+os.makedirs(DATA_DIR, exist_ok=True)
+
+DB_PATH = os.path.join(DATA_DIR, "pizzaria.db")
 OLD_JSON_PATH = os.path.join(BASE_PATH, "data.json")
 
 SCHEMA = """
