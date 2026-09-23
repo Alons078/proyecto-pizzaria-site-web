@@ -154,6 +154,17 @@ def require_print_agent(view):
     return wrapped
 
 
+def require_kitchen(view):
+    """Painel da cozinha: entra quem está logado como admin OU com a senha
+    de um turno (a mesma que os funcionários já usam em /funcionarios)."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not (session.get("is_admin") or session.get("shift_id")):
+            return jsonify({"ok": False, "error": "Entre com a senha do turno para ver os pedidos."}), 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def require_employee(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -203,6 +214,16 @@ def funcionarios():
     return render_template("funcionarios.html")
 
 
+@app.route("/cozinha")
+def cozinha():
+    return render_template("cozinha.html")
+
+
+@app.route("/pedido/<token>")
+def acompanhar_pedido(token):
+    return render_template("pedido.html")
+
+
 @app.route("/produto/<int:item_id>")
 def produto(item_id):
     data = db.load_data()
@@ -233,8 +254,10 @@ def get_data():
     """Dados públicos para a vista do cliente. Não inclui turnos, senhas nem vendas."""
     data = db.load_data()
     data["store"]["is_open"] = is_open_now(data["store"])
+    # O token do agente de impressão é uma senha: nunca vai para o público.
+    public_store = {k: v for k, v in data["store"].items() if k != "print_agent_token"}
     public = {
-        "store": data["store"],
+        "store": public_store,
         "today_post": data["today_post"],
         "items": data["items"],
         "promotions": data["promotions"],
@@ -320,12 +343,16 @@ def create_order():
         try:
             qty = int(entry.get("qty"))
             unit_price = float(entry.get("unit_price"))
+            # Quantas pizzas tem em UMA unidade desta linha (0 para bebida/salgado,
+            # 1 para uma pizza normal, 2 para uma promoção de "2 pizzas" etc.).
+            # Usado só para o resumo "pizzas vendidas por tipo de entrega" do admin.
+            pizza_count = int(entry.get("pizza_count") or 0)
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
-        if qty <= 0 or qty > 500 or unit_price < 0:
+        if qty <= 0 or qty > 500 or unit_price < 0 or pizza_count < 0 or pizza_count > 20:
             return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
         name = str(entry.get("name") or "")[:200]
-        order_items.append({"name": name, "qty": qty, "unit_price": round(unit_price, 2)})
+        order_items.append({"name": name, "qty": qty, "unit_price": round(unit_price, 2), "pizza_count": pizza_count})
         total += unit_price * qty
 
     if not order_items:
@@ -374,9 +401,78 @@ def create_order():
         "troco_paid_with": troco_paid_with,
         "troco_amount": troco_amount,
         "delivery_fee": delivery_fee,
+        # Código secreto (impossível de adivinhar) para o cliente acompanhar
+        # o pedido em /pedido/<código> sem precisar de login.
+        "track_token": secrets.token_urlsafe(12),
     }
     order_id = db.insert_order(order)
-    return jsonify({"ok": True, "order_id": order_id})
+    return jsonify({"ok": True, "order_id": order_id, "track_token": order["track_token"]})
+
+
+# ---------- etapas do pedido: cozinha e acompanhamento do cliente ----------
+
+@app.route("/api/pedido/<token>", methods=["GET"])
+def track_order(token):
+    """Público (quem tem o código secreto vê). Não devolve endereço nem
+    dados de pagamento — só o necessário para mostrar a barra de progresso."""
+    order = db.get_order_by_token(token)
+    if not order:
+        return jsonify({"ok": False, "error": "Pedido não encontrado."}), 404
+    return jsonify({
+        "ok": True,
+        "order": {
+            "id": order["id"],
+            "customer_name": order["customer_name"],
+            "delivery_type": order["delivery_type"],
+            "is_delivery": order["delivery_type"] == db.DELIVERY_TYPE_VALUE,
+            "items": order["items"],
+            "total": order["total"],
+            "created_at": order["created_at"],
+            "stage": order["stage"],
+            "stage_updated_at": order["stage_updated_at"],
+        },
+    })
+
+
+@app.route("/api/cozinha/pedidos", methods=["GET"])
+@require_kitchen
+def kitchen_orders():
+    orders = db.list_kitchen_orders()
+    now = datetime.now()
+    for order in orders:
+        order["is_delivery"] = order["delivery_type"] == db.DELIVERY_TYPE_VALUE
+        # Minutos desde que o pedido chegou (calculado no servidor, pra não
+        # depender do fuso horário do navegador).
+        try:
+            order["age_min"] = max(0, int((now - datetime.fromisoformat(order["created_at"])).total_seconds() // 60))
+        except (TypeError, ValueError):
+            order["age_min"] = None
+    return jsonify({"ok": True, "orders": orders})
+
+
+@app.route("/api/cozinha/pedidos/<int:order_id>/avancar", methods=["POST"])
+@require_kitchen
+def kitchen_advance_order(order_id):
+    body = request.get_json(silent=True) or {}
+    expected = str(body.get("from_stage") or "")
+    if expected not in db.ORDER_STAGES:
+        return jsonify({"ok": False, "error": "Etapa inválida."}), 400
+    updated = db.advance_order_stage(order_id, expected)
+    if not updated:
+        return jsonify({"ok": False, "error": "Esse pedido já mudou de etapa. Atualizando a lista..."}), 409
+    updated["is_delivery"] = updated["delivery_type"] == db.DELIVERY_TYPE_VALUE
+    return jsonify({"ok": True, "order": updated})
+
+
+@app.route("/api/cozinha/pedidos/<int:order_id>/cancelar", methods=["POST"])
+@require_kitchen
+def kitchen_cancel_order(order_id):
+    """Cancela um pedido (trote, endereço errado, cliente desistiu...). Ele
+    some do painel da cozinha e não entra na contagem de pizzas vendidas."""
+    updated = db.cancel_order(order_id)
+    if not updated:
+        return jsonify({"ok": False, "error": "Não foi possível cancelar (o pedido já saiu da lista ou já foi cancelado)."}), 409
+    return jsonify({"ok": True})
 
 
 @app.route("/api/pedidos/pendentes", methods=["GET"])
@@ -526,6 +622,55 @@ def regenerate_print_token():
     token = secrets.token_hex(16)
     db.set_print_agent_token(token)
     return jsonify({"ok": True, "token": token})
+
+
+def _orders_in_period(orders, period):
+    """Filtra pedidos pelo campo created_at. 'today' = hoje (data local do
+    servidor), 'week' = últimos 7 dias, qualquer outro valor = tudo."""
+    if period not in ("today", "week"):
+        return orders
+    now = datetime.now()
+    if period == "today":
+        cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        cutoff = now - timedelta(days=7)
+    result = []
+    for o in orders:
+        try:
+            ts = datetime.fromisoformat(o.get("created_at", ""))
+        except ValueError:
+            continue
+        if ts >= cutoff:
+            result.append(o)
+    return result
+
+
+@app.route("/api/admin/pedidos/historico", methods=["GET"])
+@require_admin
+def admin_pedidos_historico():
+    """Histórico dos pedidos feitos pelo site (os mesmos que passam pelo
+    painel da cozinha), com o total de pizzas vendidas separado por tipo de
+    entrega. period: 'today' (padrão), 'week' ou 'all'."""
+    period = request.args.get("period", "today")
+    orders = _orders_in_period(db.list_all_orders(), period)
+
+    pizzas_por_entrega = {}
+    active_orders = 0
+    for o in orders:
+        if o.get("stage") == "cancelado":
+            continue
+        active_orders += 1
+        dt_label = o.get("delivery_type") or "Não informado"
+        pizzas = sum(int(item.get("pizza_count") or 0) * int(item.get("qty") or 0) for item in o.get("items", []))
+        if pizzas:
+            pizzas_por_entrega[dt_label] = pizzas_por_entrega.get(dt_label, 0) + pizzas
+
+    return jsonify({
+        "ok": True,
+        "orders": orders[:200],
+        "total_pedidos": active_orders,
+        "pizzas_por_entrega": [{"delivery_type": k, "qty": v} for k, v in pizzas_por_entrega.items()],
+    })
 
 
 @app.route("/api/admin/sales", methods=["GET"])

@@ -113,7 +113,10 @@ CREATE TABLE IF NOT EXISTS orders (
     printed_at TEXT,
     troco_paid_with REAL,
     troco_amount REAL,
-    delivery_fee REAL
+    delivery_fee REAL,
+    stage TEXT NOT NULL DEFAULT 'confirmado',
+    stage_updated_at TEXT,
+    track_token TEXT
 );
 
 -- Cache de geocodificação: cada endereço só vai UMA vez ao Nominatim.
@@ -181,6 +184,20 @@ def init_db():
         conn.commit()
     if "delivery_fee" not in existing_order_columns:
         conn.execute("ALTER TABLE orders ADD COLUMN delivery_fee REAL")
+        conn.commit()
+
+    # Etapas do pedido (painel da cozinha): confirmado -> pronto -> em_rota
+    # -> entregue. Pedidos antigos (de antes desse recurso) entram como
+    # 'entregue' pra não lotar o painel da cozinha com pedidos velhos.
+    if "stage" not in existing_order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN stage TEXT NOT NULL DEFAULT 'confirmado'")
+        conn.execute("UPDATE orders SET stage = 'entregue'")
+        conn.commit()
+    if "stage_updated_at" not in existing_order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN stage_updated_at TEXT")
+        conn.commit()
+    if "track_token" not in existing_order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN track_token TEXT")
         conn.commit()
 
     # Disponibilidade (produto "esgotado"): coluna nova na tabela items,
@@ -663,8 +680,8 @@ def insert_order(order):
     try:
         cursor = conn.execute(
             """INSERT INTO orders
-            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status, troco_paid_with, troco_amount, delivery_fee)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?)""",
+            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status, troco_paid_with, troco_amount, delivery_fee, stage, stage_updated_at, track_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?, 'confirmado', ?, ?)""",
             (
                 order.get("created_at"),
                 order.get("customer_name", ""),
@@ -677,6 +694,8 @@ def insert_order(order):
                 order.get("troco_paid_with"),
                 order.get("troco_amount"),
                 order.get("delivery_fee"),
+                order.get("created_at"),
+                order.get("track_token"),
             ),
         )
         conn.commit()
@@ -704,7 +723,108 @@ def _order_row_to_dict(r):
         "troco_paid_with": r["troco_paid_with"],
         "troco_amount": r["troco_amount"],
         "delivery_fee": r["delivery_fee"],
+        "stage": r["stage"],
+        "stage_updated_at": r["stage_updated_at"],
     }
+
+
+# ---------- etapas do pedido (painel da cozinha + acompanhamento do cliente) ----------
+#
+#   confirmado -> pronto -> em_rota -> entregue
+#
+# Pedido de retirada não passa por 'em_rota' (vai de 'pronto' direto para
+# 'entregue'). A coluna 'stage' é independente da coluna 'status', que
+# continua sendo só o controle de impressão (pendente/impresso).
+
+DELIVERY_TYPE_VALUE = "Entrega (delivery)"
+ORDER_STAGES = ["confirmado", "pronto", "em_rota", "entregue"]
+
+
+def next_stage(stage, delivery_type):
+    if stage == "confirmado":
+        return "pronto"
+    if stage == "pronto":
+        return "em_rota" if delivery_type == DELIVERY_TYPE_VALUE else "entregue"
+    if stage == "em_rota":
+        return "entregue"
+    return None
+
+
+def list_kitchen_orders():
+    """Pedidos em andamento (ainda não entregues nem cancelados), do mais
+    antigo (primeiro a chegar) para o mais novo."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM orders WHERE stage NOT IN ('entregue', 'cancelado') ORDER BY id ASC"
+    ).fetchall()
+    conn.close()
+    return [_order_row_to_dict(r) for r in rows]
+
+
+def cancel_order(order_id):
+    """Cancela um pedido (ex.: trote, endereço errado, cliente desistiu).
+    Sai do painel da cozinha e não entra nas pizzas vendidas do histórico do
+    admin. Não cancela um pedido que já foi entregue ou já está cancelado.
+    Devolve o pedido atualizado, ou None se não deu pra cancelar."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE orders SET stage = 'cancelado', stage_updated_at = ? WHERE id = ? AND stage NOT IN ('entregue', 'cancelado')",
+            (datetime_now_iso(), order_id),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        return _order_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def list_all_orders():
+    """Todos os pedidos feitos pelo site (qualquer etapa, inclusive já
+    entregues), do mais novo para o mais antigo. Usado no histórico de
+    vendas do admin — diferente de list_kitchen_orders, que só mostra os
+    que ainda estão em andamento."""
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
+    conn.close()
+    return [_order_row_to_dict(r) for r in rows]
+
+
+def advance_order_stage(order_id, expected_stage):
+    """Passa o pedido para a próxima etapa. 'expected_stage' é a etapa que
+    a tela da cozinha estava mostrando: se outra pessoa já avançou o pedido
+    (ou o botão foi tocado duas vezes), não avança de novo e devolve None.
+    Devolve o pedido atualizado, ou None."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not row or row["stage"] != expected_stage:
+            return None
+        target = next_stage(row["stage"], row["delivery_type"])
+        if not target:
+            return None
+        cursor = conn.execute(
+            "UPDATE orders SET stage = ?, stage_updated_at = ? WHERE id = ? AND stage = ?",
+            (target, datetime_now_iso(), order_id, expected_stage),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        return _order_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def get_order_by_token(token):
+    if not token:
+        return None
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM orders WHERE track_token = ?", (token,)).fetchone()
+    conn.close()
+    return _order_row_to_dict(row) if row else None
 
 
 def list_pending_orders():
