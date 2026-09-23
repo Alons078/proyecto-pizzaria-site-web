@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cozinha · Rey Pizzaria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><span>Rey Pizzaria · Cozinha</span></div>
+  <div class="admin-nav-group">
+    <a class="admin-nav" href="/funcionarios">funcionários →</a>
+    <button type="button" class="admin-nav admin-logout-btn" id="k-logout" style="display:none;">sair</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" id="k-login">
+    <h2>Entrar na cozinha</h2>
+    <p class="login-sub">Digite a senha do seu turno (a mesma da página dos funcionários).</p>
+    <p class="login-error" id="k-login-error" style="display:none;"></p>
+    <div class="field">
+      <label>Senha do turno</label>
+      <input type="password" id="k-password" autocomplete="off">
+    </div>
+    <button type="button" class="save-btn" id="k-login-btn">Entrar</button>
+  </section>
+
+  <section id="k-board" style="display:none;">
+    <div class="k-toolbar">
+      <h2 class="k-title">Pedidos em andamento <span id="k-count" class="k-count"></span></h2>
+      <span class="live-status" id="k-live">● Conectando...</span>
+      <button type="button" class="item-toggle-all" id="k-toggle-all">Abrir todos</button>
+    </div>
+    <p class="field-hint">O pedido mais antigo fica no topo. Toque no pedido para ver os detalhes e use o botão para passar para a próxima etapa — o cliente vê a mudança na hora.</p>
+    <div id="k-list"></div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast">Pedido atualizado</div>
+
+<script src="/static/live.js"></script>
+<script src="/static/cozinha.js"></script>
+</body>
+</html>

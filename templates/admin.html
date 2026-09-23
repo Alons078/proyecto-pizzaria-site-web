@@ -16,6 +16,7 @@
     <span>Painel do administrador</span>
   </div>
   <div class="admin-nav-group">
+    <a class="admin-nav" href="/cozinha">painel da cozinha →</a>
     <a class="admin-nav" href="/funcionarios">página dos funcionários →</a>
     <a class="admin-nav" href="/">ver como cliente →</a>
     <form method="post" action="/admin/logout"><button type="submit" class="admin-nav admin-logout-btn">sair</button></form>
@@ -128,7 +129,7 @@
 
   <section class="panel">
     <div class="panel-heading-row"><h2>Tamanhos das pizzas</h2><button type="button" class="add-item-btn" id="add-size-btn">+ Adicionar tamanho</button></div>
-    <p class="field-hint">Esses tamanhos e preços valem para todas as pizzas do cardápio. O cliente escolhe o tamanho na página do produto.</p>
+    <p class="field-hint">O primeiro tamanho da lista é o tamanho base. O preço de cada pizza (no cardápio) vale para o tamanho base; os outros tamanhos somam a diferença de preço desta tabela. Pizza com preço 0 usa o preço da tabela.</p>
     <div id="sizes-list"></div>
   </section>
 
@@ -157,6 +158,26 @@
     <h2>Vendas dos funcionários</h2>
     <div class="sales-stats" id="sales-stats"></div>
     <div id="sales-table-wrap"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading-row">
+      <h2>Histórico de pedidos (cozinha)</h2>
+      <div class="status-toggle" id="pedidos-period-toggle">
+        <button type="button" data-period="today" class="active">Hoje</button>
+        <button type="button" data-period="week">7 dias</button>
+        <button type="button" data-period="all">Tudo</button>
+      </div>
+    </div>
+    <div class="status-toggle" id="pedidos-delivery-toggle">
+      <button type="button" data-delivery="all" class="active">Todos</button>
+      <button type="button" data-delivery="Retirada no local">Retirada</button>
+      <button type="button" data-delivery="Entrega (delivery)">Entrega</button>
+    </div>
+    <p class="login-sub">Pedidos feitos pelos clientes no site (os mesmos que passam pelo <strong>/cozinha</strong>). Pedidos cancelados não entram na contagem de pizzas.</p>
+    <button type="button" class="add-item-btn" id="pedidos-pizzas-btn">🍕 Ver pizzas vendidas</button>
+    <div class="sales-stats" id="pedidos-pizzas-stats"></div>
+    <div id="pedidos-table-wrap"></div>
   </section>
 
   <div class="save-bar">
@@ -195,6 +216,7 @@
   </div>
 </div>
 
+<script src="/static/live.js"></script>
 <script src="/static/admin.js"></script>
 </body>
 </html>
