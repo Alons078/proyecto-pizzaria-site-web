@@ -443,28 +443,132 @@ async function handleSingleImageUpload(input, onUploaded, previewId, aspectRatio
   }
 }
 
+/* ---------- Lista de produtos (pizzas / salgados / bebidas) ----------
+ * Cada produto aparece como uma linha compacta (foto, nome, preço). Clicar
+ * na linha abre/fecha os campos de edição. Produtos novos (ainda não salvos)
+ * ficam no TOPO da lista e já vêm abertos, pra não precisar rolar a página. */
+const ITEM_LIST_IDS = { pizza: "pizzas-list", salgado: "salgados-list", bebida: "bebidas-list" };
+const ITEM_EMOJI = { pizza: "🍕", salgado: "🥟", bebida: "🥤" };
+const expandedItemIds = new Set();
+const newItemIds = new Set();
+
+function formatBRL(value) {
+  return (Number(value) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function normalizeSearch(text) {
+  return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function setRowOpen(row, open) {
+  row.classList.toggle("is-open", open);
+  row.querySelector(".item-summary")?.setAttribute("aria-expanded", String(open));
+  const id = Number(row.dataset.id);
+  if (open) expandedItemIds.add(id); else expandedItemIds.delete(id);
+}
+
+function updateRowSummary(row) {
+  const name = row.querySelector(".item-name-input").value.trim() || "(sem nome)";
+  const price = row.querySelector(".item-price").value;
+  const featured = row.querySelector(".item-featured")?.checked;
+  const isNew = newItemIds.has(Number(row.dataset.id));
+  const soldOut = row.classList.contains("is-unavailable");
+  row.querySelector(".item-summary-name").textContent = name;
+  row.querySelector(".item-summary-meta").textContent = [
+    formatBRL(price),
+    featured ? "⭐ destaque" : "",
+    soldOut ? "🔴 esgotado" : "",
+    isNew ? "✨ novo (não salvo)" : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function applyItemFilter(container) {
+  const bar = container.previousElementSibling;
+  const isBar = bar && bar.classList.contains("item-toolbar");
+  const term = normalizeSearch(isBar ? bar.querySelector(".item-search").value : "");
+  let shown = 0;
+  const rows = container.querySelectorAll(".item-row");
+  rows.forEach((row) => {
+    const match = !term || normalizeSearch(row.querySelector(".item-name-input").value).includes(term);
+    row.hidden = !match;
+    if (match) shown += 1;
+  });
+  if (isBar) {
+    bar.querySelector(".item-count").textContent = term
+      ? `${shown} de ${rows.length}`
+      : `${rows.length} produto${rows.length === 1 ? "" : "s"}`;
+  }
+}
+
+function initItemToolbars() {
+  Object.values(ITEM_LIST_IDS).forEach((listId) => {
+    const container = document.getElementById(listId);
+    if (!container || (container.previousElementSibling && container.previousElementSibling.classList.contains("item-toolbar"))) return;
+    const bar = document.createElement("div");
+    bar.className = "item-toolbar";
+    bar.innerHTML = `
+      <input type="search" class="item-search" placeholder="🔍 Buscar por nome..." aria-label="Buscar produto">
+      <button type="button" class="item-toggle-all">Abrir todos</button>
+      <span class="item-count"></span>`;
+    container.parentNode.insertBefore(bar, container);
+    bar.querySelector(".item-search").addEventListener("input", () => applyItemFilter(container));
+    const toggleAll = bar.querySelector(".item-toggle-all");
+    toggleAll.addEventListener("click", () => {
+      const rows = [...container.querySelectorAll(".item-row:not([hidden])")];
+      const open = rows.some((row) => !row.classList.contains("is-open"));
+      rows.forEach((row) => setRowOpen(row, open));
+      toggleAll.textContent = open ? "Fechar todos" : "Abrir todos";
+    });
+  });
+}
+
 function fillItemList(elementId, list) {
   const container = document.getElementById(elementId);
   if (!list.length) {
     container.innerHTML = `<div class="empty-items">Nenhum produto cadastrado.</div>`;
+    applyItemFilter(container);
     return;
   }
-  container.innerHTML = list.map((item) => {
+  // Produtos novos primeiro (a ordem "oficial" do cardápio continua sendo a do servidor).
+  const ordered = [...list].sort((a, b) => (newItemIds.has(Number(b.id)) ? 1 : 0) - (newItemIds.has(Number(a.id)) ? 1 : 0));
+  container.innerHTML = ordered.map((item) => {
     const isAvailable = item.available !== false;
+    const isOpen = expandedItemIds.has(Number(item.id));
+    const thumb = item.image ? `<img src="${escapeHTML(item.image)}" alt="">` : (ITEM_EMOJI[item.category] || "🍽️");
     return `
-    <div class="item-row${isAvailable ? "" : " is-unavailable"}" data-id="${escapeHTML(item.id)}">
-      <button type="button" class="availability-toggle-btn${isAvailable ? "" : " is-sold-out"}" data-id="${escapeHTML(item.id)}">
-        ${isAvailable ? "🟢 Disponível — clique para marcar como esgotado" : "🔴 Esgotado — clique para disponibilizar de novo"}
-      </button>
-      <div class="field item-name-field"><label>Nome</label><input type="text" class="item-name-input" value="${escapeHTML(item.name)}" placeholder="Nome do produto"></div>
-      <div class="field"><label>Preço (R$)</label><input type="number" min="0" step="0.5" class="item-price" value="${escapeHTML(item.price)}"></div>
-      <div class="field"><label>Extra por sabor (R$)</label><input type="number" min="0" step="0.5" class="item-promo-extra" value="${escapeHTML(item.promo_extra || 0)}"><small>Valor somado quando este produto for escolhido numa promoção, ou como sabor adicional na página de outra pizza.</small></div>
-      <div class="field item-image-field"><label>Imagem do produto</label><input type="file" class="item-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="image-preview item-image-preview">${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
-      <div class="field item-description-field"><label>Comentário / descrição</label><textarea class="item-description" placeholder="Ex.: Molho de tomate, mussarela e manjericão">${escapeHTML(item.description || "")}</textarea></div>
-      <label class="item-featured-field"><input type="checkbox" class="item-featured" ${item.featured ? "checked" : ""}> Destacar em "Mais pedidos"</label>
-      <button type="button" class="delete-item-btn" data-id="${escapeHTML(item.id)}">Excluir produto</button>
+    <div class="item-row${isAvailable ? "" : " is-unavailable"}${isOpen ? " is-open" : ""}" data-id="${escapeHTML(item.id)}">
+      <div class="item-summary" role="button" tabindex="0" aria-expanded="${isOpen}">
+        <div class="item-thumb">${thumb}</div>
+        <div class="item-summary-text"><strong class="item-summary-name"></strong><span class="item-summary-meta"></span></div>
+        <span class="item-chevron">▾</span>
+      </div>
+      <div class="item-details">
+        <button type="button" class="availability-toggle-btn${isAvailable ? "" : " is-sold-out"}" data-id="${escapeHTML(item.id)}">
+          ${isAvailable ? "🟢 Disponível — clique para marcar como esgotado" : "🔴 Esgotado — clique para disponibilizar de novo"}
+        </button>
+        <div class="field item-name-field"><label>Nome</label><input type="text" class="item-name-input" value="${escapeHTML(item.name)}" placeholder="Nome do produto"></div>
+        <div class="field"><label>Preço (R$)</label><input type="number" min="0" step="0.5" class="item-price" value="${escapeHTML(item.price)}">${item.category === "pizza" ? `<small>Preço no tamanho base (o primeiro de "Tamanhos das pizzas"). Os outros tamanhos somam a diferença da tabela.</small>` : ""}</div>
+        <div class="field"><label>Adicional na promoção (R$)</label><input type="number" min="0" step="0.5" class="item-promo-extra" value="${escapeHTML(item.promo_extra || 0)}"><small>Só é cobrado quando este produto é escolhido dentro de uma promoção (inteiro ou em metade). Na venda individual não tem efeito.</small></div>
+        <div class="field item-image-field"><label>Imagem do produto</label><input type="file" class="item-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="image-preview item-image-preview">${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
+        <div class="field item-description-field"><label>Comentário / descrição</label><textarea class="item-description" placeholder="Ex.: Molho de tomate, mussarela e manjericão">${escapeHTML(item.description || "")}</textarea></div>
+        <label class="item-featured-field"><input type="checkbox" class="item-featured" ${item.featured ? "checked" : ""}> Destacar em "Mais pedidos"</label>
+        <button type="button" class="delete-item-btn" data-id="${escapeHTML(item.id)}">Excluir produto</button>
+      </div>
     </div>`;
   }).join("");
+
+  container.querySelectorAll(".item-row").forEach((row) => {
+    updateRowSummary(row);
+    const summary = row.querySelector(".item-summary");
+    summary.addEventListener("click", () => setRowOpen(row, !row.classList.contains("is-open")));
+    summary.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      setRowOpen(row, !row.classList.contains("is-open"));
+    });
+    row.addEventListener("input", () => { updateRowSummary(row); });
+    row.querySelector(".item-name-input").addEventListener("input", () => applyItemFilter(container));
+  });
 
   container.querySelectorAll(".delete-item-btn").forEach((button) => button.addEventListener("click", () => removeItem(Number(button.dataset.id))));
   container.querySelectorAll(".availability-toggle-btn").forEach((button) => button.addEventListener("click", () => toggleItemAvailability(Number(button.dataset.id))));
@@ -476,8 +580,44 @@ function fillItemList(elementId, list) {
       if (item) item.image = url;
     }, null, 4 / 3, "image/jpeg");
     const item = currentData.items.find((entry) => Number(entry.id) === id);
-    if (item?.image) row.querySelector(".item-image-preview").innerHTML = `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">`;
+    if (item?.image) {
+      row.querySelector(".item-image-preview").innerHTML = `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">`;
+      row.querySelector(".item-thumb").innerHTML = `<img src="${escapeHTML(item.image)}" alt="">`;
+    }
   }));
+  applyItemFilter(container);
+}
+
+/* Copia o que está digitado nos campos dos produtos de volta para
+ * currentData.items. Assim, adicionar ou excluir um produto NÃO apaga o que
+ * você já tinha digitado (e ainda não salvo) nos outros produtos. */
+function syncItemsFromDOM() {
+  if (!currentData) return;
+  currentData.items = currentData.items.map((item) => {
+    const row = document.querySelector(`.item-row[data-id="${item.id}"]`);
+    if (!row) return item;
+    return {
+      ...item,
+      name: row.querySelector(".item-name-input").value,
+      price: parseFloat(row.querySelector(".item-price").value) || 0,
+      promo_extra: parseFloat(row.querySelector(".item-promo-extra").value) || 0,
+      description: row.querySelector(".item-description").value,
+      featured: row.querySelector(".item-featured")?.checked || false,
+    };
+  });
+}
+
+function refreshItemLists() {
+  Object.entries(ITEM_LIST_IDS).forEach(([category, listId]) => {
+    fillItemList(listId, currentData.items.filter((i) => i.category === category));
+  });
+}
+
+function openPanelContaining(element) {
+  const panel = element?.closest(".panel");
+  if (panel && panel.classList.contains("is-collapsed")) {
+    panel.querySelector(".panel-toggle-heading")?.click();
+  }
 }
 
 async function toggleItemAvailability(id) {
@@ -723,6 +863,108 @@ async function loadSales() {
   }
 }
 
+// ---------- histórico de pedidos (cozinha) ----------
+
+let pedidosPeriod = "today";
+let pedidosDeliveryFilter = "all";
+let lastPedidosOrders = [];
+
+const PEDIDOS_STAGE_LABELS = {
+  confirmado: "Confirmado",
+  pronto: "Pronto",
+  em_rota: "Em rota",
+  entregue: "Entregue",
+  cancelado: "Cancelado",
+};
+
+async function loadPedidosHistorico() {
+  const tableEl = document.getElementById("pedidos-table-wrap");
+  const statsEl = document.getElementById("pedidos-pizzas-stats");
+  if (!tableEl) return;
+  try {
+    const res = await fetch(`/api/admin/pedidos/historico?period=${pedidosPeriod}`);
+    if (res.status === 401) return;
+    if (!res.ok) throw new Error("Não foi possível carregar o histórico de pedidos.");
+    const data = await res.json();
+    lastPedidosOrders = data.orders;
+    // Some a estatística de pizzas quando os dados mudam, até apertar o botão de novo.
+    statsEl.innerHTML = "";
+    renderPedidosTable();
+  } catch (error) {
+    console.error(error);
+    tableEl.innerHTML = `<div class="empty-items">Erro ao carregar o histórico de pedidos.</div>`;
+  }
+}
+
+function filteredPedidosOrders() {
+  if (pedidosDeliveryFilter === "all") return lastPedidosOrders;
+  return lastPedidosOrders.filter((o) => o.delivery_type === pedidosDeliveryFilter);
+}
+
+function renderPedidosTable() {
+  const tableEl = document.getElementById("pedidos-table-wrap");
+  const orders = filteredPedidosOrders();
+  if (!orders.length) {
+    tableEl.innerHTML = `<div class="empty-items">Nenhum pedido neste filtro.</div>`;
+    return;
+  }
+  tableEl.innerHTML = `<table class="sales-table">
+    <thead><tr><th>Data/hora</th><th>Cliente</th><th>Entrega</th><th>Itens</th><th>Total</th><th>Etapa</th></tr></thead>
+    <tbody>
+      ${orders.map((order) => `<tr${order.stage === "cancelado" ? ' class="pedido-cancelado"' : ""}>
+        <td>${escapeHTML(formatTimestamp(order.created_at))}</td>
+        <td>${escapeHTML(order.customer_name || "—")}</td>
+        <td>${escapeHTML(order.delivery_type || "—")}</td>
+        <td>${order.items.map((i) => `${escapeHTML(i.qty)}× ${escapeHTML(i.name)}`).join(", ")}</td>
+        <td>${formatPrice(order.total)}</td>
+        <td>${escapeHTML(PEDIDOS_STAGE_LABELS[order.stage] || order.stage)}</td>
+      </tr>`).join("")}
+    </tbody>
+  </table>`;
+}
+
+function showPedidosPizzasStats() {
+  const statsEl = document.getElementById("pedidos-pizzas-stats");
+  if (!statsEl) return;
+  const porEntrega = {};
+  filteredPedidosOrders().forEach((order) => {
+    if (order.stage === "cancelado") return; // cancelado não conta como venda
+    const pizzas = (order.items || []).reduce((sum, i) => sum + (Number(i.pizza_count) || 0) * (Number(i.qty) || 0), 0);
+    if (pizzas) porEntrega[order.delivery_type || "Não informado"] = (porEntrega[order.delivery_type || "Não informado"] || 0) + pizzas;
+  });
+  const entries = Object.entries(porEntrega);
+  if (!entries.length) {
+    statsEl.innerHTML = `<div class="empty-items">Nenhuma pizza vendida neste filtro.</div>`;
+    return;
+  }
+  const total = entries.reduce((sum, [, qty]) => sum + qty, 0);
+  statsEl.innerHTML = `
+    <div class="sales-stat-card sales-stat-highlight"><span>Total de pizzas</span><strong>${total}</strong></div>
+    ${entries.map(([label, qty]) => `<div class="sales-stat-card"><span>${escapeHTML(label)}</span><strong>${qty}</strong></div>`).join("")}
+  `;
+}
+
+document.querySelectorAll("#pedidos-period-toggle button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#pedidos-period-toggle button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    pedidosPeriod = btn.dataset.period;
+    loadPedidosHistorico();
+  });
+});
+
+document.querySelectorAll("#pedidos-delivery-toggle button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#pedidos-delivery-toggle button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    pedidosDeliveryFilter = btn.dataset.delivery;
+    document.getElementById("pedidos-pizzas-stats").innerHTML = "";
+    renderPedidosTable();
+  });
+});
+
+document.getElementById("pedidos-pizzas-btn")?.addEventListener("click", showPedidosPizzasStats);
+
 function formatTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value || "—";
@@ -730,22 +972,33 @@ function formatTimestamp(value) {
 }
 
 function addItem(category) {
+  syncItemsFromDOM();
   const ids = currentData.items.map((item) => Number(item.id)).filter(Number.isFinite);
   const nextId = ids.length ? Math.max(...ids) + 1 : 1;
   currentData.items.push({ id: nextId, category, name: "Novo produto", price: 0, promo_extra: 0, image: "", description: "", featured: false });
-  fillForm(currentData);
-  const sectionMap = { pizza: "pizzas-list", salgado: "salgados-list", bebida: "bebidas-list" };
-  const row = document.getElementById(sectionMap[category]).querySelector(`.item-row[data-id="${nextId}"]`);
+  newItemIds.add(nextId);
+  expandedItemIds.add(nextId);
+  const container = document.getElementById(ITEM_LIST_IDS[category]);
+  // Limpa a busca (senão o produto novo poderia ficar escondido) e abre o painel se estiver fechado.
+  const search = container.previousElementSibling?.querySelector?.(".item-search");
+  if (search) search.value = "";
+  openPanelContaining(container);
+  refreshItemLists();
+  const row = container.querySelector(`.item-row[data-id="${nextId}"]`);
   row?.scrollIntoView({ behavior: "smooth", block: "center" });
-  row?.querySelector(".item-name-input")?.focus();
-  row?.querySelector(".item-name-input")?.select();
+  const input = row?.querySelector(".item-name-input");
+  input?.focus();
+  input?.select();
 }
 
 function removeItem(id) {
+  syncItemsFromDOM();
   const item = currentData.items.find((entry) => Number(entry.id) === Number(id));
   if (!item || !window.confirm(`Excluir "${item.name}" do cardápio?`)) return;
   currentData.items = currentData.items.filter((entry) => Number(entry.id) !== Number(id));
-  fillForm(currentData);
+  newItemIds.delete(Number(id));
+  expandedItemIds.delete(Number(id));
+  refreshItemLists();
 }
 
 function addPromotion() {
@@ -846,6 +1099,8 @@ document.getElementById("save-btn").addEventListener("click", async () => {
     const res = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (!res.ok) { let message = "O servidor recusou as alterações."; try { const result = await res.json(); message = result.error || message; } catch (_) {} throw new Error(message); }
     currentData = payload;
+    newItemIds.clear();
+    document.querySelectorAll(".item-row").forEach(updateRowSummary);
     showToast("Alterações salvas");
   } catch (error) { console.error(error); showToast(error.message || "Erro ao salvar"); }
 });
@@ -886,7 +1141,39 @@ document.getElementById("print-token-regenerate-btn").addEventListener("click", 
   }
 });
 
+/* Barra de atalhos fixa no topo: pula direto para qualquer seção (abrindo
+ * ela se estiver fechada), sem precisar rolar a página inteira. */
+function initSectionNav() {
+  const wrap = document.querySelector("main.wrap");
+  if (!wrap) return;
+  const panels = [...wrap.querySelectorAll(":scope > .panel")];
+  const nav = document.createElement("nav");
+  nav.className = "admin-quicknav";
+  nav.setAttribute("aria-label", "Ir para seção");
+  panels.forEach((panel) => {
+    const h2 = panel.querySelector("h2");
+    if (!h2) return;
+    const label = h2.textContent.replace("Cardápio — ", "").replace("Vendas dos funcionários", "Vendas").replace("Turnos de funcionários", "Turnos").replace("Tamanhos das pizzas", "Tamanhos").trim();
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      openPanelContaining(panel);
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    nav.appendChild(btn);
+  });
+  wrap.insertBefore(nav, wrap.firstChild);
+}
+
 setupCropper();
+initSectionNav();
 initCollapsiblePanels();
+initItemToolbars();
 loadData();
 loadSales();
+loadPedidosHistorico();
+// Só a tabela de vendas se atualiza sozinha; o formulário do cardápio NÃO
+// (senão apagaria o que você está digitando).
+LiveRefresh.every(loadSales, 30000);
+LiveRefresh.every(loadPedidosHistorico, 30000);

@@ -1,8 +1,14 @@
+let lastMenuSignature = "";
+
 async function loadData() {
   try {
-    const res = await fetch("/api/data");
+    const res = await fetch("/api/data", { cache: "no-store" });
     if (!res.ok) throw new Error("Não foi possível carregar o cardápio.");
     const data = await res.json();
+    // Só redesenha se algo mudou (preço, esgotado, aberto/fechado, promoção...).
+    const signature = JSON.stringify(data);
+    if (signature === lastMenuSignature) return;
+    lastMenuSignature = signature;
     render(data);
   } catch (error) {
     console.error(error);
@@ -130,7 +136,13 @@ function cheapestPizzaPrice(pizzaSizes) {
 function itemPriceLabel(item, pizzaSizes) {
   if (item.category === "pizza") {
     const cheapest = cheapestPizzaPrice(pizzaSizes);
-    if (cheapest !== null) return `A partir de ${formatPrice(cheapest)}`;
+    if (cheapest !== null) {
+      // Mesma regra da página do produto: o preço da pizza vale para o
+      // primeiro tamanho da tabela; os outros somam a diferença da tabela.
+      const own = Number(item.price || 0);
+      const from = own ? own + cheapest - Number(pizzaSizes[0].price || 0) : cheapest;
+      return `A partir de ${formatPrice(from)}`;
+    }
   }
   return formatPrice(item.price);
 }
@@ -188,6 +200,8 @@ function fillGrid(elementId, list, pizzaSizes) {
 }
 
 loadData();
+// Atualiza o cardápio sozinho a cada 15s (e na hora ao voltar para a aba).
+LiveRefresh.every(loadData, 15000);
 
 
 function formatPrice(value) {

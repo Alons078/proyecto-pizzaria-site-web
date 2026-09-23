@@ -77,6 +77,18 @@ function currentSize() {
   return currentSizes.find((s) => s.id === selectedSizeId) || null;
 }
 
+/* Preço de uma pizza num tamanho. O "Preço" que o admin coloca em cada pizza
+ * vale para o tamanho base (o primeiro da tabela "Tamanhos das pizzas"); os
+ * outros tamanhos somam a mesma diferença que a tabela tem em relação ao
+ * base. Pizza sem preço próprio (0) usa direto o preço da tabela. */
+function pizzaPriceForSize(pizza, size) {
+  if (!size) return Number(pizza?.price || 0);
+  const own = Number(pizza?.price || 0);
+  if (!own) return Number(size.price || 0);
+  const baseSize = currentSizes[0];
+  return own + Number(size.price || 0) - Number(baseSize?.price || 0);
+}
+
 /* Garante que splitFlavorIds tenha exatamente `splitCount` ids válidos,
  * mantendo o que já estava escolhido e completando o resto com sabores
  * diferentes (a 1ª parte começa sempre com o sabor da própria página). */
@@ -116,7 +128,7 @@ function renderProduct(item) {
           <button type="button" class="size-option${size.id === selectedSizeId ? " selected" : ""}" data-size-id="${size.id}">
             <span class="size-name">${escapeHTML(size.name)}</span>
             <span class="size-cm">${escapeHTML(String(size.cm))}cm</span>
-            <span class="size-price">${cartFormatPrice(size.price)}</span>
+            <span class="size-price">${cartFormatPrice(pizzaPriceForSize(currentItem, size))}</span>
           </button>
         `).join("")}
       </div>
@@ -137,8 +149,7 @@ function renderProduct(item) {
     ensureSplitFlavorIds(allFlavors);
 
     const optionsHTML = (selectedId) => allFlavors.map((f) => {
-      const extra = Number(f.promo_extra || 0) > 0 && f.id !== currentItem.id
-        ? ` (+${cartFormatPrice(f.promo_extra)})` : "";
+      const extra = "";   // o adicional (promo_extra) só vale dentro de promoções
       const selected = Number(selectedId) === Number(f.id) ? " selected" : "";
       return `<option value="${f.id}"${selected}>${escapeHTML(f.name)}${extra}</option>`;
     }).join("");
@@ -401,17 +412,19 @@ function currentUnitPrice() {
   let price = 0;
   if (currentSizes.length) {
     const size = currentSize();
-    price = size ? Number(size.price || 0) : 0;
+    if (flavorMode === "split") {
+      // Pizza dividida: cobra pelo sabor mais caro entre as partes.
+      // (O "adicional" de cada pizza só vale dentro de promoções.)
+      const prices = splitFlavorIds.map((id) => {
+        const flavor = currentAllItems.find((i) => Number(i.id) === Number(id)) || currentItem;
+        return pizzaPriceForSize(flavor, size);
+      });
+      price = prices.length ? Math.max(...prices) : pizzaPriceForSize(currentItem, size);
+    } else {
+      price = pizzaPriceForSize(currentItem, size);
+    }
   } else {
     price = Number(currentItem.price || 0);
-  }
-  if (flavorMode === "split") {
-    // Cobrar extra de cada parte que não seja o sabor "base" da página
-    splitFlavorIds.forEach((id) => {
-      if (id == null || Number(id) === Number(currentItem.id)) return;
-      const flavor = currentAllItems.find((i) => Number(i.id) === Number(id));
-      if (flavor) price += Number(flavor.promo_extra || 0);
-    });
   }
   const borda = currentBorda();
   if (borda) price += Number(borda.price || 0);
@@ -469,6 +482,9 @@ function buildCartEntry() {
     name,
     qty: currentQty,
     unit_price: currentUnitPrice(),
+    // Quantas pizzas tem em uma unidade deste produto (1 se for pizza,
+    // 0 se for salgado/bebida). Só usado pro resumo de vendas do admin.
+    pizza_count: currentItem.category === "pizza" ? 1 : 0,
   };
 }
 
@@ -551,7 +567,7 @@ function buyNowConfirm(event) {
     deliveryFeeText: buyNowFee ? buyNowFee.feeText() : null,
   };
 
-  cartRegisterOrder(cartLine, checkout);
+  const orderPromise = cartRegisterOrder(cartLine, checkout);
   const message = cartOrderMessage(cartLine, total, checkout);
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");
@@ -560,6 +576,14 @@ function buyNowConfirm(event) {
   const original = confirmBtn.textContent;
   confirmBtn.textContent = "Pedido enviado ✓";
   setTimeout(() => { confirmBtn.textContent = original; }, 1500);
+  cartGoToTracking(orderPromise);
 }
 
 loadProduct();
+
+/* Se o admin mudar preço, sabor, esgotado, promoção ou horário enquanto o
+ * cliente está aqui: recarrega sozinha (se ele ainda não mexeu em nada) ou
+ * mostra a faixa "Atualizar agora" (se já estava preenchendo o pedido). */
+LiveRefresh.watchPage({
+  pick: (d) => ({ store: d.store, items: d.items, promotions: d.promotions, pizza_sizes: d.pizza_sizes }),
+});

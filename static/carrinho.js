@@ -342,13 +342,17 @@ function sendToWhatsApp(cart, subtotal, feeCtl) {
    * pegar), mas sem travar o cliente: mesmo que isso falhe (sem
    * internet no momento, servidor fora do ar), o pedido continua indo
    * pelo WhatsApp normalmente — só não vai sair impresso sozinho. */
-  cartRegisterOrder(cart, checkout);
+  const orderPromise = cartRegisterOrder(cart, checkout);
 
   const message = cartOrderMessage(cart, total, checkout);
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");
   cartClear();
   renderCart();
+  cartGoToTracking(orderPromise);
 }
 
 loadStoreInfo().then(renderCart);
+
+/* WhatsApp, Pix e horário podem mudar no admin: se mudarem, atualiza. */
+LiveRefresh.watchPage({ pick: (d) => d.store });

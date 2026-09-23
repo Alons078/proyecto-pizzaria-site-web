@@ -416,6 +416,9 @@ function buildCartEntry() {
     name: `${currentPromo.name} (${chosenNames.join(", ")})`,
     qty: currentQty,
     unit_price: unitPrice,
+    // Quantas pizzas tem em uma unidade desta promoção (ex.: promoção de
+    // "2 pizzas" = 2). Só usado pro resumo de vendas do admin.
+    pizza_count: (currentPromo.slots || []).filter((s) => s.category === "pizza").length,
   };
 }
 
@@ -515,10 +518,18 @@ function buyNowConfirm(event) {
     deliveryFeeText: buyNowFee ? buyNowFee.feeText() : null,
   };
 
-  cartRegisterOrder([line], checkout);
+  const orderPromise = cartRegisterOrder([line], checkout);
   const message = cartOrderMessage([line], total, checkout);
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");
+  cartGoToTracking(orderPromise);
 }
 
 loadPromotion();
+
+/* Se o admin mudar preço, sabor, esgotado, promoção ou horário enquanto o
+ * cliente está aqui: recarrega sozinha (se ele ainda não mexeu em nada) ou
+ * mostra a faixa "Atualizar agora" (se já estava preenchendo o pedido). */
+LiveRefresh.watchPage({
+  pick: (d) => ({ store: d.store, items: d.items, promotions: d.promotions, pizza_sizes: d.pizza_sizes }),
+});

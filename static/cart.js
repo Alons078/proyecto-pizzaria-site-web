@@ -117,7 +117,7 @@ function cartOrderMessage(cart, total, checkout) {
  * normalmente — só não vai sair impresso sozinho. */
 function cartRegisterOrder(cart, checkout) {
   const payload = {
-    items: cart.map((line) => ({ name: line.name, qty: line.qty, unit_price: line.unit_price })),
+    items: cart.map((line) => ({ name: line.name, qty: line.qty, unit_price: line.unit_price, pizza_count: line.pizza_count || 0 })),
     customer_name: checkout.name,
     delivery_type: checkout.delivery,
     address: checkout.address,
@@ -125,12 +125,75 @@ function cartRegisterOrder(cart, checkout) {
     notes: checkout.notes,
     troco_paid_with: checkout.trocoPaidWith,
   };
-  fetch("/api/pedidos", {
+  // Devolve uma Promise com o código de acompanhamento (ou null se falhar).
+  return fetch("/api/pedidos", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  }).catch((error) => console.error("Não foi possível registrar o pedido para impressão:", error));
+  })
+    .then((res) => res.json())
+    .then((result) => {
+      if (result && result.ok && result.track_token) {
+        cartRememberOrder(result.track_token);
+        return result.track_token;
+      }
+      return null;
+    })
+    .catch((error) => {
+      console.error("Não foi possível registrar o pedido para impressão:", error);
+      return null;
+    });
 }
+
+/* ---------- acompanhamento do pedido (confirmado → pronto → em rota) ----------
+ * O servidor devolve um código secreto do pedido. Guardamos ele no navegador
+ * por algumas horas para mostrar o botão "Acompanhar meu pedido" nas páginas
+ * do site, e levamos o cliente para /pedido/<código> logo depois de pedir. */
+const CART_LAST_ORDER_KEY = "rey_pizzaria_last_order_v1";
+const CART_LAST_ORDER_TTL_MS = 6 * 60 * 60 * 1000;
+
+function cartRememberOrder(token) {
+  try {
+    localStorage.setItem(CART_LAST_ORDER_KEY, JSON.stringify({ token, at: Date.now() }));
+  } catch (_) { /* sem localStorage: só não mostra o atalho */ }
+}
+
+function cartLastOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CART_LAST_ORDER_KEY) || "null");
+    if (!saved || !saved.token || Date.now() - saved.at > CART_LAST_ORDER_TTL_MS) return null;
+    return saved;
+  } catch (_) {
+    return null;
+  }
+}
+
+function cartGoToTracking(orderPromise) {
+  /* Espera pelo menos esse tempo antes de trocar a página. Se navegarmos
+   * cedo demais (ex.: quando o servidor responde rápido), a troca de página
+   * pode interromper no meio do caminho a transição do navegador para o
+   * WhatsApp — e o app abre vazio, sem a mensagem do pedido. Esperando um
+   * pouco garante que a troca para o WhatsApp já terminou antes de mexer
+   * nesta aba. */
+  const MIN_DELAY_MS = 1200;
+  const minDelay = new Promise((resolve) => setTimeout(resolve, MIN_DELAY_MS));
+
+  Promise.all([Promise.resolve(orderPromise), minDelay]).then(([token]) => {
+    if (token) window.location.href = `/pedido/${token}`;
+  });
+}
+
+function cartShowTrackingPill() {
+  const order = cartLastOrder();
+  if (!order || !document.body || document.getElementById("track-pill")) return;
+  const link = document.createElement("a");
+  link.id = "track-pill";
+  link.className = "track-pill";
+  link.href = `/pedido/${order.token}`;
+  link.textContent = "📦 Acompanhar meu pedido";
+  document.body.appendChild(link);
+}
+cartShowTrackingPill();
 
 /*
  * ---------- taxa de entrega por distância ----------
