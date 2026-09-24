@@ -49,6 +49,14 @@ CREATE TABLE IF NOT EXISTS store (
     pix_city TEXT NOT NULL DEFAULT ''
 );
 
+-- Senha do entregador. Fica numa tabela própria (e não em "store") porque
+-- save_menu_data() reescreve a linha inteira de "store" a cada salvamento do
+-- cardápio e apagaria a senha.
+CREATE TABLE IF NOT EXISTS courier_access (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    password TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS today_post (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     title TEXT NOT NULL DEFAULT '',
@@ -1026,6 +1034,29 @@ def set_print_agent_token(token):
     conn = get_connection()
     try:
         conn.execute("UPDATE store SET print_agent_token = ? WHERE id = 1", (token,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_courier_password():
+    """Hash da senha do entregador ('' se o admin ainda não definiu.)"""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT password FROM courier_access WHERE id = 1").fetchone()
+        return row["password"] if row else ""
+    finally:
+        conn.close()
+
+
+def set_courier_password(password_hash):
+    """Grava o hash da senha do entregador, sem mexer no resto dos dados."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO courier_access (id, password) VALUES (1, ?)",
+            (password_hash,),
+        )
         conn.commit()
     finally:
         conn.close()

@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 import os
 import uuid
+import hashlib
 import hmac
 import secrets
 
@@ -161,6 +162,27 @@ def require_kitchen(view):
     def wrapped(*args, **kwargs):
         if not (session.get("is_admin") or session.get("shift_id")):
             return jsonify({"ok": False, "error": "Entre com a senha do turno para ver os pedidos."}), 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def _courier_fingerprint(stored_hash):
+    """Identificador curto da senha atual do entregador. Vai dentro da sessão:
+    quando o admin troca a senha, o valor muda e a sessão antiga deixa de valer."""
+    return hashlib.sha256(str(stored_hash or "").encode("utf-8")).hexdigest()[:16]
+
+
+def require_courier(view):
+    """Painel do entregador: entra quem fez login com a SENHA DO ENTREGADOR
+    (sessão própria, que não abre cozinha nem funcionários) ou o admin. A senha
+    de turno NÃO serve aqui, e a do entregador NÃO serve nas outras telas."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if session.get("is_admin"):
+            return view(*args, **kwargs)
+        stored = db.get_courier_password()
+        if not stored or session.get("courier_pw") != _courier_fingerprint(stored):
+            return jsonify({"ok": False, "error": "Entre com a senha do entregador."}), 401
         return view(*args, **kwargs)
     return wrapped
 
@@ -531,8 +553,32 @@ def entregador():
     return render_template("entregador.html")
 
 
+@app.route("/api/entregador/login", methods=["POST"])
+def courier_login():
+    """Login do entregador, com a senha que o admin define em /admin
+    ("Acesso do entregador"). Não usa a senha dos turnos."""
+    body = request.get_json(silent=True) or {}
+    password = str(body.get("password") or "").strip()
+    if not password:
+        return jsonify({"ok": False, "error": "Digite a senha do entregador."}), 400
+    stored = db.get_courier_password()
+    if not stored:
+        return jsonify({"ok": False, "error": "A senha do entregador ainda não foi definida. Peça ao administrador."}), 403
+    if not check_shift_password(stored, password):
+        return jsonify({"ok": False, "error": "Senha incorreta."}), 401
+    session["courier_pw"] = _courier_fingerprint(stored)
+    session.permanent = True  # o celular não deve pedir a senha de novo a cada vez que fechar o navegador
+    return jsonify({"ok": True})
+
+
+@app.route("/api/entregador/logout", methods=["POST"])
+def courier_logout():
+    session.pop("courier_pw", None)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/entregador/pedidos", methods=["GET"])
-@require_kitchen
+@require_courier
 def courier_orders():
     """Pedidos de ENTREGA que já saíram da cozinha (etapa 'em_rota'), do mais
     antigo para o mais novo. Retirada nunca aparece aqui."""
@@ -552,7 +598,7 @@ def courier_orders():
 
 
 @app.route("/api/entregador/pedidos/<int:order_id>/entregar", methods=["POST"])
-@require_kitchen
+@require_courier
 def courier_deliver_order(order_id):
     """O entregador confirma a entrega: o pedido passa de 'em_rota' para
     'entregue'. A cozinha e o cliente veem a mudança sozinhos (as telas se
@@ -751,6 +797,27 @@ def regenerate_print_token():
     token = secrets.token_hex(16)
     db.set_print_agent_token(token)
     return jsonify({"ok": True, "token": token})
+
+
+@app.route("/api/admin/entregador", methods=["GET"])
+@require_admin
+def admin_courier_status():
+    return jsonify({"ok": True, "has_password": bool(db.get_courier_password())})
+
+
+@app.route("/api/admin/entregador/senha", methods=["POST"])
+@require_admin
+def admin_set_courier_password():
+    """Define ou troca a senha do entregador. Quem estava logado com a senha
+    antiga é desconectado na próxima atualização da tela."""
+    body = request.get_json(silent=True) or {}
+    password = str(body.get("password") or "").strip()
+    if len(password) < 4:
+        return jsonify({"ok": False, "error": "A senha precisa ter pelo menos 4 caracteres."}), 400
+    if len(password) > 64:
+        return jsonify({"ok": False, "error": "Senha muito longa (máximo 64 caracteres)."}), 400
+    db.set_courier_password(hash_shift_password(password))
+    return jsonify({"ok": True, "has_password": True})
 
 
 def _orders_in_period(orders, period):
