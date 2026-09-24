@@ -156,6 +156,19 @@
   </section>
 
   <section class="panel">
+    <h2>Acesso do entregador</h2>
+    <p class="field-hint">O entregador entra em <strong>/entregador</strong> com esta senha e só vê as entregas em rota e o botão de confirmar. Ela não abre a cozinha nem nenhuma outra tela.</p>
+    <div class="field">
+      <label for="courier-password">Nova senha do entregador</label>
+      <div class="print-token-row">
+        <input type="text" id="courier-password" autocomplete="off" placeholder="Mínimo 4 caracteres">
+        <button type="button" id="courier-password-save-btn">Salvar senha</button>
+      </div>
+      <p class="field-hint" id="courier-password-status">Verificando...</p>
+    </div>
+  </section>
+
+  <section class="panel">
     <h2>Backups do cardápio</h2>
     <p class="login-sub">Cada vez que você salva, o sistema guarda uma cópia dos produtos de antes. Se algum produto sumir, escolha um backup e clique em <strong>Recuperar</strong>: ele devolve só os produtos que estão faltando (não apaga nem muda nada do que já existe). Os horários são os do servidor.</p>
     <div id="backups-list"><p class="field-hint">Carregando...</p></div>
