@@ -430,8 +430,68 @@ def track_order(token):
             "created_at": order["created_at"],
             "stage": order["stage"],
             "stage_updated_at": order["stage_updated_at"],
+            "can_cancel": order["stage"] == "confirmado",
         },
     })
+
+
+@app.route("/meus-pedidos")
+def meus_pedidos():
+    return render_template("meus_pedidos.html")
+
+
+CANCEL_TOO_LATE_MESSAGE = (
+    "A cozinha já começou a preparar este pedido, então não dá mais para cancelar por aqui. "
+    "Se precisar, fale com a pizzaria."
+)
+
+
+@app.route("/api/pedido/<token>/cancelar", methods=["POST"])
+def customer_cancel_order(token):
+    """O cliente cancela o próprio pedido (quem tem o código secreto). Só
+    funciona enquanto a cozinha ainda não iniciou o preparo."""
+    order = db.get_order_by_token(token)
+    if not order:
+        return jsonify({"ok": False, "error": "Pedido não encontrado."}), 404
+    if order["stage"] == "cancelado":
+        return jsonify({"ok": True})
+    if not db.cancel_order_by_token(token):
+        return jsonify({"ok": False, "error": CANCEL_TOO_LATE_MESSAGE}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/meus-pedidos", methods=["POST"])
+def my_orders():
+    """'Meus pedidos': o navegador do cliente guarda os códigos dos pedidos
+    que ele fez e manda a lista para cá. Não existe login de cliente — só
+    quem tem o código secreto de um pedido consegue ver aquele pedido."""
+    body = request.get_json(silent=True) or {}
+    tokens = body.get("tokens")
+    if not isinstance(tokens, list):
+        return jsonify({"ok": False, "error": "Lista inválida."}), 400
+    now = datetime.now()
+    result = []
+    for token in tokens[:20]:
+        order = db.get_order_by_token(str(token))
+        if not order:
+            continue
+        try:
+            age_min = max(0, int((now - datetime.fromisoformat(order["created_at"])).total_seconds() // 60))
+        except (TypeError, ValueError):
+            age_min = None
+        result.append({
+            "token": str(token),
+            "id": order["id"],
+            "delivery_type": order["delivery_type"],
+            "is_delivery": order["delivery_type"] == db.DELIVERY_TYPE_VALUE,
+            "items": order["items"],
+            "total": order["total"],
+            "stage": order["stage"],
+            "can_cancel": order["stage"] == "confirmado",
+            "age_min": age_min,
+        })
+    result.sort(key=lambda o: o["id"], reverse=True)
+    return jsonify({"ok": True, "orders": result})
 
 
 @app.route("/api/cozinha/pedidos", methods=["GET"])
@@ -462,6 +522,45 @@ def kitchen_advance_order(order_id):
         return jsonify({"ok": False, "error": "Esse pedido já mudou de etapa. Atualizando a lista..."}), 409
     updated["is_delivery"] = updated["delivery_type"] == db.DELIVERY_TYPE_VALUE
     return jsonify({"ok": True, "order": updated})
+
+
+# ---------- entregador: pedidos em rota + confirmar entrega ----------
+
+@app.route("/entregador")
+def entregador():
+    return render_template("entregador.html")
+
+
+@app.route("/api/entregador/pedidos", methods=["GET"])
+@require_kitchen
+def courier_orders():
+    """Pedidos de ENTREGA que já saíram da cozinha (etapa 'em_rota'), do mais
+    antigo para o mais novo. Retirada nunca aparece aqui."""
+    now = datetime.now()
+    orders = []
+    for order in db.list_kitchen_orders():
+        if order["stage"] != "em_rota" or order["delivery_type"] != db.DELIVERY_TYPE_VALUE:
+            continue
+        order["is_delivery"] = True
+        # Minutos desde que o pedido saiu da cozinha (calculado no servidor).
+        try:
+            order["route_min"] = max(0, int((now - datetime.fromisoformat(order["stage_updated_at"])).total_seconds() // 60))
+        except (TypeError, ValueError):
+            order["route_min"] = None
+        orders.append(order)
+    return jsonify({"ok": True, "orders": orders})
+
+
+@app.route("/api/entregador/pedidos/<int:order_id>/entregar", methods=["POST"])
+@require_kitchen
+def courier_deliver_order(order_id):
+    """O entregador confirma a entrega: o pedido passa de 'em_rota' para
+    'entregue'. A cozinha e o cliente veem a mudança sozinhos (as telas se
+    atualizam a cada poucos segundos)."""
+    updated = db.advance_order_stage(order_id, "em_rota")
+    if not updated:
+        return jsonify({"ok": False, "error": "Esse pedido já foi confirmado ou não está mais em rota."}), 409
+    return jsonify({"ok": True})
 
 
 @app.route("/api/cozinha/pedidos/<int:order_id>/cancelar", methods=["POST"])

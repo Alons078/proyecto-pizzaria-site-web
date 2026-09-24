@@ -737,11 +737,13 @@ def _order_row_to_dict(r):
 # continua sendo só o controle de impressão (pendente/impresso).
 
 DELIVERY_TYPE_VALUE = "Entrega (delivery)"
-ORDER_STAGES = ["confirmado", "pronto", "em_rota", "entregue"]
+ORDER_STAGES = ["confirmado", "preparando", "pronto", "em_rota", "entregue"]
 
 
 def next_stage(stage, delivery_type):
     if stage == "confirmado":
+        return "preparando"
+    if stage == "preparando":
         return "pronto"
     if stage == "pronto":
         return "em_rota" if delivery_type == DELIVERY_TYPE_VALUE else "entregue"
@@ -759,6 +761,30 @@ def list_kitchen_orders():
     ).fetchall()
     conn.close()
     return [_order_row_to_dict(r) for r in rows]
+
+
+def cancel_order_by_token(token):
+    """Cancelamento feito pelo CLIENTE (em /pedido/<código> ou /meus-pedidos).
+    Só vale enquanto o pedido está em 'confirmado', ou seja, enquanto a cozinha
+    ainda NÃO clicou em "iniciar preparo". É um único UPDATE condicionado à
+    etapa: se a cozinha avançar o pedido no mesmo instante, só um dos dois
+    ganha (nunca cancela um pedido que já entrou em preparo).
+    Devolve o pedido atualizado, ou None se não deu pra cancelar."""
+    if not token:
+        return None
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE orders SET stage = 'cancelado', stage_updated_at = ? WHERE track_token = ? AND stage = 'confirmado'",
+            (datetime_now_iso(), token),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute("SELECT * FROM orders WHERE track_token = ?", (token,)).fetchone()
+        return _order_row_to_dict(row)
+    finally:
+        conn.close()
 
 
 def cancel_order(order_id):
