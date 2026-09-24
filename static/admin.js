@@ -500,8 +500,38 @@ function applyItemFilter(container) {
   }
 }
 
+const QUICKADD_LABEL = { pizza: "Nova pizza", salgado: "Novo salgado", bebida: "Nova bebida" };
+
+/* Adicionar rápido: escreva nome + preço e aperte Enter. O produto entra no
+ * TOPO da lista (fechado), o cursor volta para o campo do nome e a página NÃO
+ * rola: dá para cadastrar vários seguidos sem sair do lugar. Foto e descrição
+ * podem ser colocadas depois, abrindo o produto. */
+function quickAddItem(category, quick) {
+  const nameInput = quick.querySelector(".qa-name");
+  const priceInput = quick.querySelector(".qa-price");
+  const name = nameInput.value.trim();
+  if (!name) { nameInput.focus(); return; }
+  if (priceInput.value.trim() === "") { priceInput.focus(); showToast("Coloque o preço (pode ser 0)"); return; }
+  const price = Math.max(0, parseFloat(priceInput.value) || 0);
+
+  syncItemsFromDOM();
+  const ids = currentData.items.map((item) => Number(item.id)).filter(Number.isFinite);
+  const nextId = ids.length ? Math.max(...ids) + 1 : 1;
+  currentData.items.push({ id: nextId, category, name, price, promo_extra: 0, image: "", description: "", featured: false });
+  newItemIds.add(nextId);   // fica fechado (não entra em expandedItemIds)
+
+  const search = quick.nextElementSibling && quick.nextElementSibling.querySelector(".item-search");
+  if (search) search.value = "";
+  refreshItemLists();
+  nameInput.value = "";
+  priceInput.value = "";
+  nameInput.focus({ preventScroll: true });
+  const pending = newItemIds.size;
+  showToast(`"${name}" adicionado no topo (${pending} novo${pending === 1 ? "" : "s"} para salvar)`);
+}
+
 function initItemToolbars() {
-  Object.values(ITEM_LIST_IDS).forEach((listId) => {
+  Object.entries(ITEM_LIST_IDS).forEach(([category, listId]) => {
     const container = document.getElementById(listId);
     if (!container || (container.previousElementSibling && container.previousElementSibling.classList.contains("item-toolbar"))) return;
     const bar = document.createElement("div");
@@ -511,6 +541,27 @@ function initItemToolbars() {
       <button type="button" class="item-toggle-all">Abrir todos</button>
       <span class="item-count"></span>`;
     container.parentNode.insertBefore(bar, container);
+
+    // A barra de adicionar rápido vem ANTES da barra de busca (a busca precisa
+    // continuar colada na lista).
+    const quick = document.createElement("div");
+    quick.className = "item-quickadd";
+    quick.innerHTML = `
+      <input type="text" class="qa-name" placeholder="+ ${QUICKADD_LABEL[category] || "Novo produto"}: nome" aria-label="Nome do novo produto" autocomplete="off">
+      <input type="number" class="qa-price" min="0" step="0.5" placeholder="R$" aria-label="Preço do novo produto">
+      <button type="button" class="qa-add">Adicionar</button>`;
+    bar.parentNode.insertBefore(quick, bar);
+    quick.querySelector(".qa-add").addEventListener("click", () => quickAddItem(category, quick));
+    quick.querySelector(".qa-name").addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      if (quick.querySelector(".qa-price").value.trim() === "") quick.querySelector(".qa-price").focus();
+      else quickAddItem(category, quick);
+    });
+    quick.querySelector(".qa-price").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); quickAddItem(category, quick); }
+    });
+
     bar.querySelector(".item-search").addEventListener("input", () => applyItemFilter(container));
     const toggleAll = bar.querySelector(".item-toggle-all");
     toggleAll.addEventListener("click", () => {
@@ -530,7 +581,14 @@ function fillItemList(elementId, list) {
     return;
   }
   // Produtos novos primeiro (a ordem "oficial" do cardápio continua sendo a do servidor).
-  const ordered = [...list].sort((a, b) => (newItemIds.has(Number(b.id)) ? 1 : 0) - (newItemIds.has(Number(a.id)) ? 1 : 0));
+  // Produtos novos (ainda não salvos) ficam no TOPO, o mais recente primeiro;
+  // assim cada novo aparece bem em cima, sem precisar rolar até o fim da lista.
+  const ordered = [...list].sort((a, b) => {
+    const aNew = newItemIds.has(Number(a.id));
+    const bNew = newItemIds.has(Number(b.id));
+    if (aNew && bNew) return Number(b.id) - Number(a.id);
+    return (bNew ? 1 : 0) - (aNew ? 1 : 0);
+  });
   container.innerHTML = ordered.map((item) => {
     const isAvailable = item.available !== false;
     const isOpen = expandedItemIds.has(Number(item.id));
@@ -986,10 +1044,11 @@ function addItem(category) {
   openPanelContaining(container);
   refreshItemLists();
   const row = container.querySelector(`.item-row[data-id="${nextId}"]`);
-  row?.scrollIntoView({ behavior: "smooth", block: "center" });
   const input = row?.querySelector(".item-name-input");
-  input?.focus();
+  input?.focus({ preventScroll: true });
   input?.select();
+  // O novo produto já está no topo da lista, então só ajusta se ficou fora da tela.
+  row?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function removeItem(id) {
@@ -1041,11 +1100,12 @@ function collectForm() {
 
   const items = currentData.items.map((item) => {
     const row = document.querySelector(`.item-row[data-id="${item.id}"]`);
-    if (!row) return null;
+    // Nunca descartar produto em silêncio: se a lista não carregou completa, NÃO salva.
+    if (!row) throw new Error("A lista de produtos não carregou por completo. Recarregue a página (Ctrl+F5) antes de salvar.");
     const name = row.querySelector(".item-name-input").value.trim();
     if (!name) throw new Error("Todos os produtos precisam ter um nome.");
     return { ...item, name, price: parseFloat(row.querySelector(".item-price").value) || 0, promo_extra: parseFloat(row.querySelector(".item-promo-extra").value) || 0, image: item.image || "", description: row.querySelector(".item-description").value.trim(), featured: row.querySelector(".item-featured")?.checked || false };
-  }).filter(Boolean);
+  });
 
   const promotions = [...document.querySelectorAll(".promo-admin-card")].map((card) => {
     const existing = currentData.promotions.find((p) => String(p.id) === String(card.dataset.promoId));
@@ -1088,6 +1148,7 @@ function collectForm() {
     store: { ...currentData.store, hours: { open: getFieldValue("hour-open").trim(), close: getFieldValue("hour-close").trim() }, force_status, address: getFieldValue("store-address").trim(), delivery_time: getFieldValue("store-delivery-time").trim(), min_order: parseFloat(getFieldValue("store-min-order")) || 0, whatsapp_number: getFieldValue("store-whatsapp").trim(), pix_key: getFieldValue("store-pix-key", currentData.store.pix_key || "").trim(), pix_name: getFieldValue("store-pix-name", currentData.store.pix_name || "").trim(), pix_city: getFieldValue("store-pix-city", currentData.store.pix_city || "").trim(), logo: currentData.store.logo || "", bordas },
     today_post: { title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim(), image: currentData.today_post.image || "" },
     items,
+    revision: currentData.revision,
     promotions,
     shifts,
     pizza_sizes
@@ -1099,12 +1160,61 @@ document.getElementById("save-btn").addEventListener("click", async () => {
     const payload = collectForm();
     const res = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (!res.ok) { let message = "O servidor recusou as alterações."; try { const result = await res.json(); message = result.error || message; } catch (_) {} throw new Error(message); }
+    const saved = await res.json().catch(() => ({}));
     currentData = payload;
+    if (Number.isInteger(saved.revision)) currentData.revision = saved.revision;
     newItemIds.clear();
     document.querySelectorAll(".item-row").forEach(updateRowSummary);
     showToast("Alterações salvas");
-  } catch (error) { console.error(error); showToast(error.message || "Erro ao salvar"); }
+    loadBackups();
+  } catch (error) {
+    console.error(error);
+    // Avisos importantes de proteção ficam na tela até a pessoa ler.
+    if (/recarregue/i.test(error.message || "")) window.alert(error.message);
+    else showToast(error.message || "Erro ao salvar");
+  }
 });
+
+/* ---------- backups do cardápio ---------- */
+
+const BACKUP_LABELS = { pizza: "pizzas", salgado: "salgados", bebida: "bebidas" };
+
+async function loadBackups() {
+  const box = document.getElementById("backups-list");
+  if (!box) return;
+  try {
+    const res = await fetch("/api/admin/backups");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.backups.length) {
+      box.innerHTML = `<p class="field-hint">Ainda não há backups. O primeiro é criado no próximo "Salvar".</p>`;
+      return;
+    }
+    box.innerHTML = data.backups.map((b) => {
+      const parts = Object.entries(b.counts).map(([cat, n]) => `${n} ${BACKUP_LABELS[cat] || cat}`).join(" · ");
+      const when = String(b.created_at).replace("T", " ").slice(0, 16);
+      return `<div class="backup-row" data-id="${b.id}"><div><strong>${escapeHTML(when)}</strong><small>${escapeHTML(parts)} (${b.item_count} no total)</small></div><button type="button" class="item-toggle-all backup-restore-btn">Recuperar</button></div>`;
+    }).join("");
+    box.querySelectorAll(".backup-restore-btn").forEach((btn) => btn.addEventListener("click", () => restoreBackup(Number(btn.closest(".backup-row").dataset.id))));
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function restoreBackup(id) {
+  if (!window.confirm("Recuperar os produtos que estão faltando neste backup? Nada do que já existe será apagado ou alterado. A página vai recarregar.")) return;
+  try {
+    const res = await fetch(`/api/admin/backups/${id}/restaurar`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) { showToast(data.error || "Não foi possível recuperar"); return; }
+    if (!data.count) { showToast("Nenhum produto faltando neste backup"); return; }
+    showToast(`${data.count} produto${data.count === 1 ? "" : "s"} recuperado${data.count === 1 ? "" : "s"}`);
+    setTimeout(() => window.location.reload(), 900);
+  } catch (error) {
+    console.error(error);
+    showToast("Sem conexão — tente de novo");
+  }
+}
 
 function showToast(message = "Alterações salvas") {
   const toast = document.getElementById("toast");
@@ -1154,7 +1264,7 @@ function initSectionNav() {
   panels.forEach((panel) => {
     const h2 = panel.querySelector("h2");
     if (!h2) return;
-    const label = h2.textContent.replace("Cardápio — ", "").replace("Vendas dos funcionários", "Vendas").replace("Turnos de funcionários", "Turnos").replace("Tamanhos das pizzas", "Tamanhos").trim();
+    const label = h2.textContent.replace("Cardápio — ", "").replace("Vendas dos funcionários", "Vendas").replace("Turnos de funcionários", "Turnos").replace("Tamanhos das pizzas", "Tamanhos").replace("Backups do cardápio", "Backups").trim();
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = label;
@@ -1172,6 +1282,7 @@ initSectionNav();
 initCollapsiblePanels();
 initItemToolbars();
 loadData();
+loadBackups();
 loadSales();
 loadPedidosHistorico();
 // Só a tabela de vendas se atualiza sozinha; o formulário do cardápio NÃO

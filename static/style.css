@@ -2283,3 +2283,72 @@ main.wrap > .panel { scroll-margin-top: 64px; }
   animation: sound-pulse 1.4s ease-in-out infinite;
 }
 @keyframes sound-pulse { 50% { box-shadow: 0 0 0 5px rgba(255, 90, 60, 0.25); } }
+
+/* backups do cardápio */
+.backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--line);
+}
+.backup-row strong { display: block; font-family: var(--font-mono); font-size: 14px; }
+.backup-row small { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); }
+
+/* ---------- admin: adicionar rápido ---------- */
+.item-quickadd {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px dashed var(--ember);
+  border-radius: 12px;
+  background: rgba(255, 191, 74, 0.05);
+}
+.item-quickadd input {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+.item-quickadd .qa-name { flex: 2; min-width: 150px; }
+.item-quickadd .qa-price { width: 92px; }
+.item-quickadd .qa-add {
+  padding: 9px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--ember);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------- cliente: cartões compactos (salgados e bebidas) ---------- */
+.grid.grid-compact {
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: 12px;
+}
+.card-compact {
+  padding: 8px;
+  gap: 6px;
+  border-radius: 12px;
+}
+.card-compact .image-slot.small { border-radius: 9px; font-size: 11px; }
+.card-compact .name {
+  font-size: 13.5px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card-compact .description,
+.card-compact .card-cta { display: none; }
+.card-compact .price { font-size: 13.5px; }
+.card-compact .sold-out-badge { top: 5px; left: 5px; font-size: 10px; padding: 3px 8px; }

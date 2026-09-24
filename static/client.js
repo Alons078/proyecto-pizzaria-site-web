@@ -62,8 +62,9 @@ function render(data) {
   fillMaisPedidos(items, data.pizza_sizes || []);
   fillPromotions(data.promotions || [], items);
   fillGrid("pizzas-grid", items.filter((i) => i.category === "pizza"), data.pizza_sizes || []);
-  fillGrid("salgados-grid", items.filter((i) => i.category === "salgado"));
-  fillGrid("bebidas-grid", items.filter((i) => i.category === "bebida"));
+  // Salgados e bebidas usam cartões compactos: cabem mais na tela sem rolar tanto.
+  fillGrid("salgados-grid", items.filter((i) => i.category === "salgado"), undefined, true);
+  fillGrid("bebidas-grid", items.filter((i) => i.category === "bebida"), undefined, true);
 
   document.getElementById("foot-hours").textContent =
     `${store.hours.open} – ${store.hours.close}`;
@@ -168,14 +169,15 @@ function setupScrollReveal() {
   });
 }
 
-function fillGrid(elementId, list, pizzaSizes) {
+function fillGrid(elementId, list, pizzaSizes, compact = false) {
   const grid = document.getElementById(elementId);
+  grid.classList.toggle("grid-compact", compact);
 
   grid.innerHTML = list
     .map((item, index) => {
       const soldOut = item.available === false;
       return `
-    <a class="card reveal${soldOut ? " is-sold-out" : ""}" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
+    <a class="card reveal${compact ? " card-compact" : ""}${soldOut ? " is-sold-out" : ""}" href="/produto/${escapeHTML(item.id)}" style="transition-delay:${Math.min(index, 8) * 70}ms">
       <div class="image-slot small">
         ${
           item.image
