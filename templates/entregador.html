@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entregador · Rey Pizzaria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><span>Rey Pizzaria · Entregador</span></div>
+  <div class="admin-nav-group">
+    <a class="admin-nav" href="/cozinha">cozinha →</a>
+    <button type="button" class="admin-nav admin-logout-btn" id="d-logout" style="display:none;">sair</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" id="d-login">
+    <h2>Entrar como entregador</h2>
+    <p class="login-sub">Digite a senha do seu turno (a mesma da página dos funcionários).</p>
+    <p class="login-error" id="d-login-error" style="display:none;"></p>
+    <div class="field">
+      <label>Senha do turno</label>
+      <input type="password" id="d-password" autocomplete="off">
+    </div>
+    <button type="button" class="save-btn" id="d-login-btn">Entrar</button>
+  </section>
+
+  <section id="d-board" style="display:none;">
+    <div class="k-toolbar">
+      <h2 class="k-title">Entregas em rota <span id="d-count" class="k-count"></span></h2>
+      <span class="live-status" id="d-live">● Conectando...</span>
+    </div>
+    <p class="field-hint">A entrega mais antiga fica no topo. Quando entregar, toque em <strong>Confirmar entrega</strong> — a cozinha e o cliente veem na hora.</p>
+    <div id="d-list"></div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast">Pedido atualizado</div>
+
+<script src="/static/live.js"></script>
+<script src="/static/entregador.js"></script>
+</body>
+</html>
