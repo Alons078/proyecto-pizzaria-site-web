@@ -1252,6 +1252,42 @@ document.getElementById("print-token-regenerate-btn").addEventListener("click", 
   }
 });
 
+/* ---------- acesso do entregador ---------- */
+
+async function loadCourierStatus() {
+  const status = document.getElementById("courier-password-status");
+  if (!status) return;
+  try {
+    const res = await fetch("/api/admin/entregador", { cache: "no-store" });
+    const data = await res.json();
+    status.textContent = data.has_password
+      ? "Senha definida. Por segurança ela não é exibida: para trocar, digite uma nova e salve (quem estiver logado sai na hora)."
+      : "Nenhuma senha definida — o entregador não consegue entrar até você criar uma.";
+  } catch (_) {
+    status.textContent = "Não foi possível verificar o estado da senha.";
+  }
+}
+
+document.getElementById("courier-password-save-btn").addEventListener("click", async () => {
+  const input = document.getElementById("courier-password");
+  const password = input.value.trim();
+  if (password.length < 4) { showToast("A senha precisa ter pelo menos 4 caracteres"); return; }
+  try {
+    const res = await fetch("/api/admin/entregador/senha", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || "Não foi possível salvar a senha.");
+    input.value = "";
+    showToast("Senha do entregador salva");
+    loadCourierStatus();
+  } catch (error) {
+    showToast(error.message || "Erro ao salvar a senha");
+  }
+});
+
 /* Barra de atalhos fixa no topo: pula direto para qualquer seção (abrindo
  * ela se estiver fechada), sem precisar rolar a página inteira. */
 function initSectionNav() {
@@ -1264,7 +1300,7 @@ function initSectionNav() {
   panels.forEach((panel) => {
     const h2 = panel.querySelector("h2");
     if (!h2) return;
-    const label = h2.textContent.replace("Cardápio — ", "").replace("Vendas dos funcionários", "Vendas").replace("Turnos de funcionários", "Turnos").replace("Tamanhos das pizzas", "Tamanhos").replace("Backups do cardápio", "Backups").trim();
+    const label = h2.textContent.replace("Cardápio — ", "").replace("Vendas dos funcionários", "Vendas").replace("Turnos de funcionários", "Turnos").replace("Acesso do entregador", "Entregador").replace("Tamanhos das pizzas", "Tamanhos").replace("Backups do cardápio", "Backups").trim();
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = label;
@@ -1283,6 +1319,7 @@ initCollapsiblePanels();
 initItemToolbars();
 loadData();
 loadBackups();
+loadCourierStatus();
 loadSales();
 loadPedidosHistorico();
 // Só a tabela de vendas se atualiza sozinha; o formulário do cardápio NÃO

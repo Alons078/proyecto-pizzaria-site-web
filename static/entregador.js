@@ -222,7 +222,7 @@ async function login() {
   errorEl.style.display = "none";
   const password = document.getElementById("d-password").value;
   try {
-    const res = await fetch("/api/employee/login", {
+    const res = await fetch("/api/entregador/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password }),
@@ -245,11 +245,11 @@ async function login() {
 document.getElementById("d-login-btn").addEventListener("click", login);
 document.getElementById("d-password").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
 document.getElementById("d-logout").addEventListener("click", async () => {
-  await fetch("/api/employee/logout", { method: "POST" }).catch(() => {});
+  await fetch("/api/entregador/logout", { method: "POST" }).catch(() => {});
   showLogin();
 });
 
-// Já está logado (admin ou turno)? Entra direto.
+// Já está logado (senha do entregador ou admin)? Entra direto.
 (async function init() {
   try {
     const res = await fetch("/api/entregador/pedidos", { cache: "no-store" });
