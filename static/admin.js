@@ -871,6 +871,7 @@ let lastPedidosOrders = [];
 
 const PEDIDOS_STAGE_LABELS = {
   confirmado: "Confirmado",
+  preparando: "Em preparação",
   pronto: "Pronto",
   em_rota: "Em rota",
   entregue: "Entregue",

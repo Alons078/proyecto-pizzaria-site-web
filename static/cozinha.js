@@ -9,6 +9,7 @@ let lastSignature = "";
 let knownIds = null;          // null = ainda não carregou a primeira vez
 const openIds = new Set();    // pedidos com o desplegável aberto
 const busyIds = new Set();    // pedidos com clique em andamento
+const closedHere = new Set(); // pedidos que ESTA tela entregou/cancelou (não avisar de novo)
 let poller = null;
 let audioCtx = null;
 let wakeLock = null;
@@ -53,20 +54,87 @@ async function keepScreenOn() {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && poller) keepScreenOn(); });
 
-function beep() {
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.5);
-  } catch (_) { /* sem áudio: tudo bem */ }
+/* ---------- som de pedido novo ----------
+ * Um "ding-ding-DING!" duas vezes (~1,4 s), alto e fácil de reconhecer.
+ * Os navegadores só liberam som depois que a pessoa toca/clica na página
+ * pelo menos uma vez; por isso o botão "Toque para ativar o som" aparece
+ * enquanto o som estiver bloqueado, e qualquer toque na tela já libera. */
+
+function getAudio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+    audioCtx.onstatechange = updateSoundButton;
+  }
+  return audioCtx;
 }
+
+async function unlockAudio() {
+  const ctx = getAudio();
+  if (!ctx) return false;
+  if (ctx.state === "suspended") {
+    try { await ctx.resume(); } catch (_) { /* ainda bloqueado */ }
+  }
+  updateSoundButton();
+  return ctx.state === "running";
+}
+
+function soundIsOn() {
+  return !!audioCtx && audioCtx.state === "running";
+}
+
+function updateSoundButton() {
+  const btn = document.getElementById("k-sound");
+  if (!btn) return;
+  const on = soundIsOn();
+  btn.textContent = on ? "🔊 Testar som" : "🔇 Toque para ativar o som";
+  btn.classList.toggle("is-alert", !on);
+}
+
+function playNewOrderSound() {
+  if (!soundIsOn()) return;
+  const ctx = audioCtx;
+  const master = ctx.createGain();
+  master.gain.value = 0.9;
+  const limiter = ctx.createDynamicsCompressor(); // evita estourar/distorcer o alto-falante
+  master.connect(limiter);
+  limiter.connect(ctx.destination);
+
+  const notes = [659.25, 783.99, 1046.5];   // Mi, Sol, Dó (subindo)
+  const start = ctx.currentTime + 0.02;
+  [0, 0.75].forEach((offset) => {
+    notes.forEach((freq, i) => {
+      const t = start + offset + i * 0.16;
+      const dur = i === 2 ? 0.36 : 0.14;    // a última nota é mais longa
+      [["square", freq, 0.32], ["sine", freq * 2, 0.22]].forEach(([type, f, level]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = f;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(level, t + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+      });
+    });
+  });
+}
+
+// Qualquer toque/tecla na página libera o som (regra dos navegadores).
+["pointerdown", "keydown", "touchstart"].forEach((type) => {
+  document.addEventListener(type, () => { if (!soundIsOn()) unlockAudio(); }, { passive: true });
+});
+
+// Com a aba em segundo plano, o título avisa que chegou pedido novo.
+const BASE_TITLE = document.title;
+function flashTitle(text) {
+  if (document.hidden) document.title = text;
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) document.title = BASE_TITLE; });
 
 /* ---------- etapas ---------- */
 
@@ -74,11 +142,13 @@ function stepsFor(order) {
   return order.is_delivery
     ? [
         { key: "confirmado", label: "Pedido confirmado" },
+        { key: "preparando", label: "Em preparação" },
         { key: "pronto", label: "Pedido pronto" },
         { key: "em_rota", label: "Pedido em rota" },
       ]
     : [
         { key: "confirmado", label: "Pedido confirmado" },
+        { key: "preparando", label: "Em preparação" },
         { key: "pronto", label: "Pronto p/ retirada" },
       ];
 }
@@ -94,7 +164,8 @@ function stageBarHTML(order) {
 }
 
 function nextButtonLabel(order) {
-  if (order.stage === "confirmado") return "Próxima etapa → marcar como PRONTO";
+  if (order.stage === "confirmado") return "Próxima etapa → INICIAR PREPARO";
+  if (order.stage === "preparando") return "Próxima etapa → marcar como PRONTO";
   if (order.stage === "pronto") {
     return order.is_delivery ? "Próxima etapa → SAIU PARA ENTREGA" : "Próxima etapa → ENTREGUE (retirado)";
   }
@@ -171,9 +242,16 @@ async function loadOrders() {
     if (knownIds !== null) {
       const fresh = ids.filter((id) => !knownIds.has(id));
       if (fresh.length) {
-        beep();
+        playNewOrderSound();
+        flashTitle("🔔 Novo pedido! · Cozinha");
         showToast(fresh.length === 1 ? `Novo pedido #${fresh[0]}` : `${fresh.length} pedidos novos`);
       }
+    }
+    // Pedido que saiu da lista sem ter sido por esta tela = o entregador
+    // confirmou a entrega (ou alguém cancelou em outro aparelho).
+    if (knownIds !== null) {
+      const gone = [...knownIds].filter((id) => !ids.includes(id) && !closedHere.has(id));
+      if (gone.length) showToast(gone.length === 1 ? `Pedido #${gone[0]} saiu da lista (entregue ou cancelado)` : `${gone.length} pedidos saíram da lista (entregues)`);
     }
     knownIds = new Set(ids);
     [...openIds].forEach((id) => { if (!knownIds.has(id)) openIds.delete(id); });
@@ -198,6 +276,7 @@ async function advance(id, fromStage) {
   if (willFinish && !window.confirm(`Marcar o pedido #${id} como entregue? Ele sai desta lista.`)) return;
 
   busyIds.add(id);
+  if (willFinish) closedHere.add(id);
   render();
   try {
     const res = await fetch(`/api/cozinha/pedidos/${id}/avancar`, {
@@ -225,6 +304,7 @@ async function cancelOrder(id) {
   if (!window.confirm(`Cancelar o pedido #${id}? Ele sai da lista e não conta como venda.`)) return;
 
   busyIds.add(id);
+  closedHere.add(id);
   render();
   try {
     const res = await fetch(`/api/cozinha/pedidos/${id}/cancelar`, { method: "POST" });
@@ -281,13 +361,20 @@ async function login() {
       return;
     }
     document.getElementById("k-password").value = "";
-    beep(); // libera o áudio do navegador para os avisos de pedido novo
+    unlockAudio(); // o clique em "Entrar" já libera o som para os avisos de pedido novo
     showBoard();
   } catch (error) {
     errorEl.textContent = "Sem conexão com o servidor.";
     errorEl.style.display = "block";
   }
 }
+
+document.getElementById("k-sound").addEventListener("click", async () => {
+  const wasOn = soundIsOn();
+  await unlockAudio();
+  if (wasOn || soundIsOn()) playNewOrderSound();   // toque = teste do som
+});
+updateSoundButton();
 
 document.getElementById("k-login-btn").addEventListener("click", login);
 document.getElementById("k-password").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });

@@ -2224,3 +2224,62 @@ main.wrap > .panel { scroll-margin-top: 64px; }
   font-weight: 700;
   cursor: pointer;
 }
+
+/* ---------- painel do entregador ---------- */
+.d-address { margin: 4px 0 8px; font-size: 17px; font-weight: 600; line-height: 1.35; }
+.d-maps {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--ember);
+  color: var(--ember-dark);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-decoration: none;
+}
+.d-money { color: var(--queijo); font-weight: 700; }
+.d-confirm { background: #2da65f; }
+
+/* ---------- meus pedidos / cancelar ---------- */
+.my-orders-link {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.my-orders-link:hover { border-color: var(--ember); color: var(--ember-dark); }
+.cancel-box { margin-top: 16px; }
+.cancel-box .delete-item-btn { width: 100%; padding: 12px; }
+.k-order.stage-preparando { border-left-color: #e0a030; }
+
+.my-order {
+  background: var(--paper-warm);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--ember);
+  border-radius: 14px;
+  padding: 12px 14px 14px;
+  margin-bottom: 14px;
+}
+.my-order.is-cancelled { opacity: 0.6; border-left-color: var(--line-strong); }
+.my-order.is-done { border-left-color: #2da65f; }
+.my-order-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.my-order-head strong { font-family: var(--font-mono); font-size: 18px; color: var(--ember-dark); }
+.my-order-badge { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--ink); }
+.my-order small { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); }
+.my-order ul { margin: 8px 0; padding-left: 18px; }
+.my-order-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+.my-order-actions .delete-item-btn { padding: 8px 14px; }
+
+/* botão de som da cozinha */
+.item-toggle-all.is-alert {
+  border-color: var(--tomato);
+  color: var(--tomato);
+  font-weight: 700;
+  animation: sound-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sound-pulse { 50% { box-shadow: 0 0 0 5px rgba(255, 90, 60, 0.25); } }

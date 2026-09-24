@@ -149,23 +149,31 @@ function cartRegisterOrder(cart, checkout) {
  * O servidor devolve um código secreto do pedido. Guardamos ele no navegador
  * por algumas horas para mostrar o botão "Acompanhar meu pedido" nas páginas
  * do site, e levamos o cliente para /pedido/<código> logo depois de pedir. */
-const CART_LAST_ORDER_KEY = "rey_pizzaria_last_order_v1";
-const CART_LAST_ORDER_TTL_MS = 6 * 60 * 60 * 1000;
+const CART_ORDERS_KEY = "rey_pizzaria_orders_v2";
+const CART_ORDERS_TTL_MS = 48 * 60 * 60 * 1000;   // "Meus pedidos" lembra 2 dias
+const CART_PILL_TTL_MS = 6 * 60 * 60 * 1000;      // o botão flutuante aparece por 6h
+
+// Códigos dos pedidos feitos neste aparelho (mais novo primeiro).
+function cartOrderTokens() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CART_ORDERS_KEY) || "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved.filter((o) => o && o.token && Date.now() - o.at <= CART_ORDERS_TTL_MS);
+  } catch (_) {
+    return [];
+  }
+}
 
 function cartRememberOrder(token) {
   try {
-    localStorage.setItem(CART_LAST_ORDER_KEY, JSON.stringify({ token, at: Date.now() }));
+    const list = [{ token, at: Date.now() }, ...cartOrderTokens().filter((o) => o.token !== token)].slice(0, 15);
+    localStorage.setItem(CART_ORDERS_KEY, JSON.stringify(list));
   } catch (_) { /* sem localStorage: só não mostra o atalho */ }
 }
 
 function cartLastOrder() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(CART_LAST_ORDER_KEY) || "null");
-    if (!saved || !saved.token || Date.now() - saved.at > CART_LAST_ORDER_TTL_MS) return null;
-    return saved;
-  } catch (_) {
-    return null;
-  }
+  const last = cartOrderTokens()[0];
+  return last && Date.now() - last.at <= CART_PILL_TTL_MS ? last : null;
 }
 
 function cartGoToTracking(orderPromise) {
@@ -189,8 +197,8 @@ function cartShowTrackingPill() {
   const link = document.createElement("a");
   link.id = "track-pill";
   link.className = "track-pill";
-  link.href = `/pedido/${order.token}`;
-  link.textContent = "📦 Acompanhar meu pedido";
+  link.href = "/meus-pedidos";
+  link.textContent = "📦 Meus pedidos";
   document.body.appendChild(link);
 }
 cartShowTrackingPill();
