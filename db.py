@@ -119,6 +119,20 @@ CREATE TABLE IF NOT EXISTS orders (
     track_token TEXT
 );
 
+-- Proteção do cardápio: cópia dos produtos ANTES de cada salvamento do admin
+-- (para poder recuperar produtos apagados) e um contador de "revisão" que
+-- impede uma tela desatualizada de sobrescrever alterações mais novas.
+CREATE TABLE IF NOT EXISTS menu_backups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    items_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 -- Cache de geocodificação: cada endereço só vai UMA vez ao Nominatim.
 -- lat/lon/distance_km são fatos do endereço; delivery_fee é a taxa
 -- calculada com as regras vigentes na hora (NULL = fora da área).
@@ -474,12 +488,133 @@ def load_data():
 
 # ---------- escrita (painel do admin: cardápio, turnos, loja) ----------
 
-def save_menu_data(new_data):
-    """Substitui loja, post do dia, itens, promoções e turnos.
-    NÃO mexe na tabela de vendas — essa é só via insert_sale(), para nunca
-    travar o registro de vendas por causa de uma edição do admin."""
+class StaleMenuError(Exception):
+    """A tela do admin está desatualizada: o cardápio foi alterado (em outra
+    aba ou aparelho) depois que ela foi carregada."""
+
+
+MENU_BACKUP_KEEP = 40
+
+
+def get_menu_revision(conn=None):
+    close = conn is None
+    conn = conn or get_connection()
+    try:
+        row = conn.execute("SELECT value FROM meta WHERE key = 'menu_revision'").fetchone()
+        return int(row["value"]) if row else 0
+    finally:
+        if close:
+            conn.close()
+
+
+def _bump_menu_revision(conn):
+    new_value = get_menu_revision(conn) + 1
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('menu_revision', ?)", (str(new_value),))
+    return new_value
+
+
+def _snapshot_items(conn):
+    """Guarda uma cópia dos produtos atuais em menu_backups (se houver
+    produtos e se forem diferentes da última cópia). Mantém só as últimas."""
+    rows = conn.execute("SELECT * FROM items ORDER BY id").fetchall()
+    if not rows:
+        return
+    items = [dict(r) for r in rows]
+    payload = json.dumps(items, ensure_ascii=False, sort_keys=True)
+    last = conn.execute("SELECT items_json FROM menu_backups ORDER BY id DESC LIMIT 1").fetchone()
+    if last and last["items_json"] == payload:
+        return
+    conn.execute(
+        "INSERT INTO menu_backups (created_at, item_count, items_json) VALUES (?, ?, ?)",
+        (datetime_now_iso(), len(items), payload),
+    )
+    conn.execute(
+        "DELETE FROM menu_backups WHERE id NOT IN (SELECT id FROM menu_backups ORDER BY id DESC LIMIT ?)",
+        (MENU_BACKUP_KEEP,),
+    )
+
+
+def list_menu_backups(limit=15):
     conn = get_connection()
     try:
+        rows = conn.execute(
+            "SELECT id, created_at, item_count, items_json FROM menu_backups ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        result = []
+        for r in rows:
+            counts = {}
+            try:
+                for it in json.loads(r["items_json"]):
+                    counts[it.get("category", "")] = counts.get(it.get("category", ""), 0) + 1
+            except (TypeError, ValueError):
+                pass
+            result.append({"id": r["id"], "created_at": r["created_at"], "item_count": r["item_count"], "counts": counts})
+        return result
+    finally:
+        conn.close()
+
+
+def restore_missing_items(backup_id):
+    """Devolve ao cardápio os produtos que existem no backup e NÃO existem
+    mais (comparando categoria + nome). Não apaga nem altera nada do que já
+    está lá. Os produtos recuperados ganham ids novos (os ids antigos podem
+    já ter sido usados por produtos criados depois).
+    Devolve (lista de nomes recuperados, nova revisão) ou None se o backup não existe."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT items_json FROM menu_backups WHERE id = ?", (backup_id,)).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        backup_items = json.loads(row["items_json"])
+        _snapshot_items(conn)   # segurança: guarda também o estado de agora
+        current = conn.execute("SELECT id, category, name FROM items").fetchall()
+        known = {(c["category"], str(c["name"]).strip().lower()) for c in current}
+        next_id = max([c["id"] for c in current] + [0]) + 1
+        restored = []
+        for it in backup_items:
+            key = (it.get("category", ""), str(it.get("name", "")).strip().lower())
+            if key in known:
+                continue
+            known.add(key)
+            conn.execute(
+                """INSERT INTO items (id, category, name, price, description, image, promo_extra, featured, available)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    next_id, it.get("category", ""), it.get("name", ""), float(it.get("price", 0) or 0),
+                    it.get("description", "") or "", it.get("image", "") or "",
+                    float(it.get("promo_extra", 0) or 0), 1 if it.get("featured") else 0,
+                    0 if it.get("available") in (0, False) else 1,
+                ),
+            )
+            next_id += 1
+            restored.append(it.get("name", ""))
+        revision = _bump_menu_revision(conn) if restored else get_menu_revision(conn)
+        conn.commit()
+        return restored, revision
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def save_menu_data(new_data, expected_revision=None):
+    """Substitui loja, post do dia, itens, promoções e turnos.
+    NÃO mexe na tabela de vendas — essa é só via insert_sale(), para nunca
+    travar o registro de vendas por causa de uma edição do admin.
+
+    Proteções: (1) se 'expected_revision' não for a revisão atual, alguém
+    alterou o cardápio depois que essa tela foi carregada -> StaleMenuError
+    e NADA é salvo; (2) antes de substituir os produtos, guarda uma cópia
+    deles em menu_backups. Devolve a nova revisão."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")   # trava outras escritas durante o salvamento
+        if expected_revision is not None and get_menu_revision(conn) != expected_revision:
+            raise StaleMenuError()
+        _snapshot_items(conn)
         store = new_data.get("store", {})
         hours = store.get("hours", {})
         conn.execute(
@@ -564,7 +699,9 @@ def save_menu_data(new_data):
                     ),
                 )
 
+        revision = _bump_menu_revision(conn)
         conn.commit()
+        return revision
     except Exception:
         conn.rollback()
         raise

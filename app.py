@@ -617,6 +617,9 @@ def get_admin_data():
         "promotions": data["promotions"],
         "shifts": safe_shifts,
         "pizza_sizes": data["pizza_sizes"],
+        # Número de versão do cardápio: o "Salvar" só é aceito se a tela
+        # ainda estiver na versão atual (evita sobrescrever com dados velhos).
+        "revision": db.get_menu_revision(),
     }
     return jsonify(admin_view)
 
@@ -693,10 +696,37 @@ def update_data():
         else:
             shift["password"] = hash_shift_password(password)
 
+    # Sem número de versão (tela velha guardada no navegador) ou com versão
+    # diferente da atual: recusa, pra não apagar produtos por engano.
+    revision = new_data.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool):
+        return jsonify({"ok": False, "error": "Esta tela está desatualizada. Recarregue a página (Ctrl+F5) e faça as alterações de novo."}), 409
+
     # save_menu_data nunca mexe na tabela de vendas: elas só são gravadas
     # pela rota de funcionários (insert_sale), uma de cada vez.
-    db.save_menu_data(new_data)
-    return jsonify({"ok": True})
+    try:
+        new_revision = db.save_menu_data(new_data, expected_revision=revision)
+    except db.StaleMenuError:
+        return jsonify({"ok": False, "error": "O cardápio foi alterado em outra aba ou aparelho depois que esta tela abriu. Suas alterações NÃO foram salvas: recarregue a página (Ctrl+F5) e refaça."}), 409
+    return jsonify({"ok": True, "revision": new_revision})
+
+
+@app.route("/api/admin/backups", methods=["GET"])
+@require_admin
+def list_menu_backups():
+    return jsonify({"ok": True, "backups": db.list_menu_backups()})
+
+
+@app.route("/api/admin/backups/<int:backup_id>/restaurar", methods=["POST"])
+@require_admin
+def restore_menu_backup(backup_id):
+    """Devolve ao cardápio os produtos que existem no backup e sumiram.
+    Não apaga nem altera os produtos que já estão lá."""
+    result = db.restore_missing_items(backup_id)
+    if result is None:
+        return jsonify({"ok": False, "error": "Backup não encontrado."}), 404
+    restored, revision = result
+    return jsonify({"ok": True, "restored": restored, "count": len(restored), "revision": revision})
 
 
 @app.route("/api/admin/item/<int:item_id>/disponibilidade", methods=["POST"])
