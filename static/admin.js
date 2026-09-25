@@ -1078,6 +1078,32 @@ document.querySelectorAll("#pedidos-period-toggle button").forEach((btn) => {
   });
 });
 
+document.getElementById("pedidos-limpar-hoje-btn")?.addEventListener("click", async () => {
+  const btn = document.getElementById("pedidos-limpar-hoje-btn");
+  const confirmado = window.confirm(
+    "Apagar o histórico de hoje?\n\nIsso apaga pra sempre os pedidos de hoje já entregues ou cancelados. Pedidos ainda em andamento não são afetados. Essa ação não pode ser desfeita."
+  );
+  if (!confirmado) return;
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = "Apagando…";
+  try {
+    const res = await fetch("/api/admin/pedidos/historico/limpar-hoje", { method: "POST" });
+    if (res.status === 401) return;
+    if (!res.ok) throw new Error("Não foi possível apagar o histórico.");
+    const data = await res.json();
+    await loadPedidosHistorico();
+    btn.textContent = `Apagado! (${data.deleted} pedido${data.deleted === 1 ? "" : "s"})`;
+    setTimeout(() => { btn.textContent = textoOriginal; }, 2500);
+  } catch (error) {
+    console.error(error);
+    window.alert("Não foi possível apagar o histórico. Tente de novo.");
+    btn.textContent = textoOriginal;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.querySelectorAll("#pedidos-delivery-toggle button").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll("#pedidos-delivery-toggle button").forEach((b) => b.classList.remove("active"));

@@ -125,7 +125,8 @@ function renderCart() {
       <textarea id="checkout-notes" rows="2" placeholder="Ex.: sem cebola, troco para R$ 100..."></textarea>
     </div>
 
-    <a href="#" class="checkout-btn" id="checkout-btn">📲 Confirmar pedido pelo WhatsApp</a>
+    <a href="#" class="checkout-btn${storeInfo.is_open === false ? " is-disabled" : ""}" id="checkout-btn"${storeInfo.is_open === false ? ' aria-disabled="true"' : ""}>📲 Confirmar pedido pelo WhatsApp</a>
+    ${storeInfo.is_open === false ? `<p class="store-closed-notice">🔒 A loja está fechada agora${storeInfo.hours && storeInfo.hours.open ? ` — abre às ${escapeHTML(storeInfo.hours.open)}` : ""}. Não é possível fechar pedidos fora do horário de funcionamento.</p>` : ""}
     <p class="product-warning" id="checkout-warning"></p>
   `;
 
@@ -321,6 +322,12 @@ function showOrderSuccessOverlay() {
 
 function sendToWhatsApp(cart, subtotal, feeCtl) {
   const warningEl = document.getElementById("checkout-warning");
+
+  if (storeInfo.is_open === false) {
+    warningEl.textContent = "A loja está fechada agora. Não é possível fechar pedidos fora do horário de funcionamento.";
+    return;
+  }
+
   const phone = String(storeInfo.whatsapp_number || "").replace(/\D/g, "");
 
   if (!phone) {

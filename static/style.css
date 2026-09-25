@@ -28,6 +28,22 @@ body {
   font-family: var(--font-body);
   line-height: 1.5;
   min-height: 100vh;
+  animation: pageFadeIn 0.35s ease both;
+}
+
+/* ---------- transição suave entre páginas ---------- */
+
+@keyframes pageFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pageFadeOut {
+  to { opacity: 0; }
+}
+
+body.is-leaving {
+  animation: pageFadeOut 0.18s ease forwards;
 }
 
 a { color: inherit; }
@@ -766,6 +782,25 @@ header.top {
 }
 
 .checkout-btn:active { transform: translateY(1px); }
+
+.checkout-btn.is-disabled {
+  background: var(--paper-warm);
+  color: var(--ink-soft);
+  box-shadow: none;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.store-closed-notice {
+  background: rgba(255, 90, 95, 0.1);
+  border: 1px solid rgba(255, 90, 95, 0.35);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.4;
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+}
 
 .checkout-field {
   margin-bottom: 16px;
@@ -2014,6 +2049,7 @@ h2.panel-toggle-heading {
     animation: none !important;
   }
   .cursor-glow { display: none !important; }
+  body, body.is-leaving { animation: none !important; }
   .cart-badge.is-bumping,
   .add-to-cart-btn.is-added,
   .stage-dot.is-popping,

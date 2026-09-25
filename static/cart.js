@@ -152,7 +152,7 @@ function cartRegisterOrder(cart, checkout) {
  * por algumas horas para mostrar o botão "Acompanhar meu pedido" nas páginas
  * do site, e levamos o cliente para /pedido/<código> logo depois de pedir. */
 const CART_ORDERS_KEY = "rey_pizzaria_orders_v2";
-const CART_ORDERS_TTL_MS = 48 * 60 * 60 * 1000;   // "Meus pedidos" lembra 2 dias
+const CART_ORDERS_TTL_MS = 9 * 60 * 60 * 1000;    // "Meus pedidos" lembra 9 horas
 const CART_PILL_TTL_MS = 6 * 60 * 60 * 1000;      // o botão flutuante aparece por 6h
 
 // Códigos dos pedidos feitos neste aparelho (mais novo primeiro).
