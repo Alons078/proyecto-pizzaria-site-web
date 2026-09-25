@@ -961,6 +961,27 @@ def cancel_order(order_id):
         conn.close()
 
 
+def delete_orders(order_ids):
+    """Apaga em definitivo os pedidos com esses ids. Usado para limpar o
+    histórico do dia no admin. Só apaga pedidos JÁ FINALIZADOS (entregues ou
+    cancelados) mesmo que outro id venha na lista por engano — assim nunca
+    some um pedido que ainda está em andamento (cozinha, entrega, ou que o
+    cliente ainda está acompanhando pelo código dele)."""
+    if not order_ids:
+        return 0
+    conn = get_connection()
+    try:
+        placeholders = ",".join("?" for _ in order_ids)
+        cursor = conn.execute(
+            f"DELETE FROM orders WHERE id IN ({placeholders}) AND stage IN ('entregue', 'cancelado')",
+            list(order_ids),
+        )
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        conn.close()
+
+
 def list_all_orders():
     """Todos os pedidos feitos pelo site (qualquer etapa, inclusive já
     entregues), do mais novo para o mais antigo. Usado no histórico de

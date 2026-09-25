@@ -365,6 +365,10 @@ def create_order():
     WhatsApp, só para que o agente de impressão da pizzaria possa
     imprimir o ticket. Não precisa de login — é o mesmo pedido que o
     cliente já vai mandar por WhatsApp de qualquer forma."""
+    store = db.load_data()["store"]
+    if not is_open_now(store):
+        return jsonify({"ok": False, "error": "A loja está fechada agora. Não é possível fazer pedidos fora do horário de funcionamento."}), 403
+
     body = request.get_json(silent=True) or {}
     cart = body.get("items")
     if not isinstance(cart, list) or not cart or len(cart) > MAX_ORDER_ITEMS:
@@ -881,6 +885,19 @@ def admin_pedidos_historico():
         "total_pedidos": active_orders,
         "pizzas_por_entrega": [{"delivery_type": k, "qty": v} for k, v in pizzas_por_entrega.items()],
     })
+
+
+@app.route("/api/admin/pedidos/historico/limpar-hoje", methods=["POST"])
+@require_admin
+def admin_limpar_historico_hoje():
+    """Apaga do histórico os pedidos de HOJE que já terminaram (entregues ou
+    cancelados). Pedidos ainda em andamento (confirmado/preparando/pronto/
+    em_rota) nunca são apagados por aqui, pra não quebrar o painel da
+    cozinha nem o acompanhamento do cliente."""
+    orders = _orders_in_period(db.list_all_orders(), "today")
+    ids = [o["id"] for o in orders if o.get("stage") in ("entregue", "cancelado")]
+    deleted = db.delete_orders(ids)
+    return jsonify({"ok": True, "deleted": deleted})
 
 
 @app.route("/api/admin/sales", methods=["GET"])
