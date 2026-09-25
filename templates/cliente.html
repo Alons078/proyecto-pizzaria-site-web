@@ -87,8 +87,46 @@
   <span id="foot-address"></span>
 </footer>
 
+<div class="privacy-banner" id="privacy-banner" style="display:none;">
+  <div class="privacy-banner-inner">
+    <p class="privacy-banner-text">
+      Usamos alguns dos seus dados só para o pedido funcionar direito.
+      <button type="button" class="privacy-link-btn" id="privacy-read-btn">Leia aqui</button>
+    </p>
+    <div class="privacy-banner-actions">
+      <button type="button" class="privacy-btn privacy-btn-reject" id="privacy-reject-btn">Rejeitar</button>
+      <button type="button" class="privacy-btn privacy-btn-accept" id="privacy-accept-btn">Aceitar</button>
+    </div>
+  </div>
+</div>
+
+<div class="privacy-modal-overlay" id="privacy-modal-overlay" style="display:none;">
+  <div class="privacy-modal" role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
+    <button type="button" class="privacy-modal-close" id="privacy-modal-close-btn" aria-label="Fechar">×</button>
+    <h2 id="privacy-modal-title">Seus dados neste site</h2>
+
+    <h3>O que fica salvo no seu navegador</h3>
+    <p>O conteúdo do seu carrinho e os códigos dos pedidos que você faz ficam guardados só no seu próprio celular ou computador (não em um servidor da pizzaria) — assim você não perde o que escolheu ao navegar entre as páginas, e consegue acompanhar seus pedidos depois em "Meus pedidos".</p>
+
+    <h3>O que pedimos quando você fecha um pedido</h3>
+    <p>Nome, telefone, endereço de entrega (quando for o caso) e forma de pagamento. Se você escolhe entrega, o endereço também é usado para calcular a taxa de entrega pela distância.</p>
+
+    <h3>Para que servem esses dados</h3>
+    <p>Só para preparar, confirmar e entregar o seu pedido, e para a pizzaria poder falar com você pelo WhatsApp sobre ele. Não usamos esses dados para anúncios nem os vendemos a terceiros, e eles ficam guardados apenas pelo tempo necessário para atender o seu pedido.</p>
+
+    <p class="field-hint">Ao continuar navegando ou fazer um pedido, você concorda com esse uso. Você pode rejeitar abaixo, mas para concluir um pedido sempre vamos pedir os dados de contato e entrega, já que são necessários para ele chegar até você.</p>
+
+    <div class="privacy-modal-actions">
+      <button type="button" class="privacy-btn privacy-btn-reject" id="privacy-modal-reject-btn">Rejeitar</button>
+      <button type="button" class="privacy-btn privacy-btn-accept" id="privacy-modal-accept-btn">Aceitar</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/cart.js"></script>
 <script src="/static/live.js"></script>
 <script src="/static/client.js"></script>
+<script src="/static/privacy.js"></script>
+<script src="/static/animations.js" defer></script>
 </body>
 </html>

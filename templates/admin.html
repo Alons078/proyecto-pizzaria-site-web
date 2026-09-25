@@ -156,15 +156,37 @@
   </section>
 
   <section class="panel">
-    <h2>Acesso do entregador</h2>
-    <p class="field-hint">O entregador entra em <strong>/entregador</strong> com esta senha e só vê as entregas em rota e o botão de confirmar. Ela não abre a cozinha nem nenhuma outra tela.</p>
-    <div class="field">
-      <label for="courier-password">Nova senha do entregador</label>
-      <div class="print-token-row">
-        <input type="text" id="courier-password" autocomplete="off" placeholder="Mínimo 4 caracteres">
-        <button type="button" id="courier-password-save-btn">Salvar senha</button>
+    <h2>Senhas de acesso das telas</h2>
+    <p class="field-hint">Cada tela do sistema (cozinha, entregador, funcionários...) tem sua própria forma de entrar. Aqui vai um resumo de cada uma e como trocar a senha.</p>
+
+    <div class="access-page-block">
+      <h3 class="access-page-name">🍳 Cozinha <span class="access-page-path">/cozinha</span></h3>
+      <p class="field-hint">Não tem senha própria: quem entra com a senha de qualquer turno de funcionário também vê os pedidos aqui.</p>
+      <button type="button" class="add-item-btn goto-shifts-btn">Gerenciar senhas dos turnos ↓</button>
+    </div>
+
+    <div class="access-page-block">
+      <h3 class="access-page-name">🛵 Entregador <span class="access-page-path">/entregador</span></h3>
+      <p class="field-hint">Senha própria, separada das outras telas: só vê as entregas em rota e o botão de confirmar.</p>
+      <div class="field">
+        <label for="courier-password">Nova senha do entregador</label>
+        <div class="print-token-row">
+          <input type="text" id="courier-password" autocomplete="off" placeholder="Mínimo 4 caracteres">
+          <button type="button" id="courier-password-save-btn">Salvar senha</button>
+        </div>
+        <p class="field-hint" id="courier-password-status">Verificando...</p>
       </div>
-      <p class="field-hint" id="courier-password-status">Verificando...</p>
+    </div>
+
+    <div class="access-page-block">
+      <h3 class="access-page-name">🧑‍🍳 Funcionários <span class="access-page-path">/funcionarios</span></h3>
+      <p class="field-hint">Também usa a senha dos turnos — a mesma que abre a tela da cozinha.</p>
+      <button type="button" class="add-item-btn goto-shifts-btn">Gerenciar senhas dos turnos ↓</button>
+    </div>
+
+    <div class="access-page-block">
+      <h3 class="access-page-name">🔒 Administrador <span class="access-page-path">/admin</span></h3>
+      <p class="field-hint">Senha configurada no servidor (variável de ambiente). Não pode ser trocada por aqui — fale com quem cuida da hospedagem do site.</p>
     </div>
   </section>
 
@@ -194,9 +216,15 @@
       <button type="button" data-delivery="Retirada no local">Retirada</button>
       <button type="button" data-delivery="Entrega (delivery)">Entrega</button>
     </div>
-    <p class="login-sub">Pedidos feitos pelos clientes no site (os mesmos que passam pelo <strong>/cozinha</strong>). Pedidos cancelados não entram na contagem de pizzas.</p>
-    <button type="button" class="add-item-btn" id="pedidos-pizzas-btn">🍕 Ver pizzas vendidas</button>
+    <p class="login-sub">Pedidos feitos pelos clientes no site (os mesmos que passam pelo <strong>/cozinha</strong>). Pedidos cancelados e pedidos que ainda não foram entregues não entram nas estatísticas abaixo — só conta o que já foi realmente entregue.</p>
+    <div class="pedidos-stats-btns">
+      <button type="button" class="add-item-btn" id="pedidos-pizzas-btn">🍕 Ver pizzas vendidas</button>
+      <button type="button" class="add-item-btn" id="pedidos-entregas-btn">🛵 Ver entregas</button>
+      <button type="button" class="add-item-btn" id="pedidos-pizzas-valor-btn">💰 Ver valor das pizzas (R$)</button>
+    </div>
     <div class="sales-stats" id="pedidos-pizzas-stats"></div>
+    <div class="sales-stats" id="pedidos-entregas-stats"></div>
+    <div class="sales-stats" id="pedidos-pizzas-valor-stats"></div>
     <div id="pedidos-table-wrap"></div>
   </section>
 
