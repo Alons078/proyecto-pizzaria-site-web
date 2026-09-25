@@ -75,7 +75,14 @@ function render(order) {
 
   // Título da aba com a etapa atual + vibração leve quando muda de etapa.
   document.title = `${headline(order).replace(/[!.]$/, "")} · Rey Pizzaria`;
-  if (lastStage !== null && lastStage !== order.stage && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  const advanced = lastStage !== null && lastStage !== order.stage;
+  if (advanced && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  // Dá um "pulinho" na bolinha da etapa nova, pra chamar atenção de que o
+  // pedido avançou (só quando já tínhamos uma etapa anterior pra comparar).
+  if (advanced && !cancelled) {
+    const currentDot = document.querySelector(".stage-step.is-current .stage-dot");
+    if (currentDot) currentDot.classList.add("is-popping");
+  }
   lastStage = order.stage;
 
   if (delivered) {

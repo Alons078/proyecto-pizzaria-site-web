@@ -678,6 +678,21 @@ function openPanelContaining(element) {
   }
 }
 
+/* Botões "Gerenciar senhas dos turnos" (dentro do resumo de senhas das
+ * telas): abrem e rolam até o painel de Turnos, já que cozinha e
+ * funcionários usam a mesma senha de turno em vez de uma senha própria. */
+function initAccessPagesLinks() {
+  const panels = [...document.querySelectorAll("main.wrap > .panel")];
+  const shiftsPanel = panels.find((panel) => panel.querySelector("h2")?.textContent.includes("Turnos de funcionários"));
+  if (!shiftsPanel) return;
+  document.querySelectorAll(".goto-shifts-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openPanelContaining(shiftsPanel);
+      shiftsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
 async function toggleItemAvailability(id) {
   const item = currentData.items.find((entry) => Number(entry.id) === id);
   if (!item) return;
@@ -946,8 +961,10 @@ async function loadPedidosHistorico() {
     if (!res.ok) throw new Error("Não foi possível carregar o histórico de pedidos.");
     const data = await res.json();
     lastPedidosOrders = data.orders;
-    // Some a estatística de pizzas quando os dados mudam, até apertar o botão de novo.
+    // Some as estatísticas quando os dados mudam, até apertar o botão de novo.
     statsEl.innerHTML = "";
+    document.getElementById("pedidos-entregas-stats").innerHTML = "";
+    document.getElementById("pedidos-pizzas-valor-stats").innerHTML = "";
     renderPedidosTable();
   } catch (error) {
     console.error(error);
@@ -972,7 +989,7 @@ function renderPedidosTable() {
     <tbody>
       ${orders.map((order) => `<tr${order.stage === "cancelado" ? ' class="pedido-cancelado"' : ""}>
         <td>${escapeHTML(formatTimestamp(order.created_at))}</td>
-        <td>${escapeHTML(order.customer_name || "—")}</td>
+        <td>${escapeHTML(order.customer_name || "—")}${order.customer_phone ? `<br><small>${escapeHTML(order.customer_phone)}</small>` : ""}</td>
         <td>${escapeHTML(order.delivery_type || "—")}</td>
         <td>${order.items.map((i) => `${escapeHTML(i.qty)}× ${escapeHTML(i.name)}`).join(", ")}</td>
         <td>${formatPrice(order.total)}</td>
@@ -987,19 +1004,68 @@ function showPedidosPizzasStats() {
   if (!statsEl) return;
   const porEntrega = {};
   filteredPedidosOrders().forEach((order) => {
-    if (order.stage === "cancelado") return; // cancelado não conta como venda
+    if (order.stage !== "entregue") return; // só conta o que já foi realmente entregue
     const pizzas = (order.items || []).reduce((sum, i) => sum + (Number(i.pizza_count) || 0) * (Number(i.qty) || 0), 0);
     if (pizzas) porEntrega[order.delivery_type || "Não informado"] = (porEntrega[order.delivery_type || "Não informado"] || 0) + pizzas;
   });
   const entries = Object.entries(porEntrega);
   if (!entries.length) {
-    statsEl.innerHTML = `<div class="empty-items">Nenhuma pizza vendida neste filtro.</div>`;
+    statsEl.innerHTML = `<div class="empty-items">Nenhuma pizza entregue neste filtro.</div>`;
     return;
   }
   const total = entries.reduce((sum, [, qty]) => sum + qty, 0);
   statsEl.innerHTML = `
-    <div class="sales-stat-card sales-stat-highlight"><span>Total de pizzas</span><strong>${total}</strong></div>
+    <div class="sales-stat-card sales-stat-highlight"><span>Total de pizzas entregues</span><strong>${total}</strong></div>
     ${entries.map(([label, qty]) => `<div class="sales-stat-card"><span>${escapeHTML(label)}</span><strong>${qty}</strong></div>`).join("")}
+  `;
+}
+
+/* Quantas entregas foram pedidas no total (delivery, sem contar canceladas)
+ * e quantas de fato chegaram ao cliente (etapa "entregue"), além do valor
+ * somado das taxas de entrega já concluídas. */
+function showPedidosEntregasStats() {
+  const statsEl = document.getElementById("pedidos-entregas-stats");
+  if (!statsEl) return;
+  const deliveryOrders = filteredPedidosOrders().filter(
+    (o) => o.delivery_type === "Entrega (delivery)" && o.stage !== "cancelado"
+  );
+  const entregues = deliveryOrders.filter((o) => o.stage === "entregue");
+  const valorEntregas = entregues.reduce((sum, o) => sum + (Number(o.delivery_fee) || 0), 0);
+
+  if (!deliveryOrders.length) {
+    statsEl.innerHTML = `<div class="empty-items">Nenhuma entrega neste filtro.</div>`;
+    return;
+  }
+  statsEl.innerHTML = `
+    <div class="sales-stat-card sales-stat-highlight"><span>Total de entregas</span><strong>${deliveryOrders.length}</strong></div>
+    <div class="sales-stat-card"><span>Entregas concluídas</span><strong>${entregues.length}</strong></div>
+    <div class="sales-stat-card"><span>Valor das entregas concluídas</span><strong>${formatPrice(valorEntregas)}</strong></div>
+  `;
+}
+
+/* Valor em reais de tudo que tinha pizza nos pedidos já entregues (a linha
+ * inteira do item, já que numa promoção o preço cobre a pizza junto com o
+ * que mais vier nela). */
+function showPedidosPizzasValorStats() {
+  const statsEl = document.getElementById("pedidos-pizzas-valor-stats");
+  if (!statsEl) return;
+  const porEntrega = {};
+  filteredPedidosOrders().forEach((order) => {
+    if (order.stage !== "entregue") return;
+    const valor = (order.items || [])
+      .filter((i) => (Number(i.pizza_count) || 0) > 0)
+      .reduce((sum, i) => sum + (Number(i.unit_price) || 0) * (Number(i.qty) || 0), 0);
+    if (valor) porEntrega[order.delivery_type || "Não informado"] = (porEntrega[order.delivery_type || "Não informado"] || 0) + valor;
+  });
+  const entries = Object.entries(porEntrega);
+  if (!entries.length) {
+    statsEl.innerHTML = `<div class="empty-items">Nenhuma pizza entregue neste filtro.</div>`;
+    return;
+  }
+  const total = entries.reduce((sum, [, valor]) => sum + valor, 0);
+  statsEl.innerHTML = `
+    <div class="sales-stat-card sales-stat-highlight"><span>Valor total em pizzas</span><strong>${formatPrice(total)}</strong></div>
+    ${entries.map(([label, valor]) => `<div class="sales-stat-card"><span>${escapeHTML(label)}</span><strong>${formatPrice(valor)}</strong></div>`).join("")}
   `;
 }
 
@@ -1018,11 +1084,15 @@ document.querySelectorAll("#pedidos-delivery-toggle button").forEach((btn) => {
     btn.classList.add("active");
     pedidosDeliveryFilter = btn.dataset.delivery;
     document.getElementById("pedidos-pizzas-stats").innerHTML = "";
+    document.getElementById("pedidos-entregas-stats").innerHTML = "";
+    document.getElementById("pedidos-pizzas-valor-stats").innerHTML = "";
     renderPedidosTable();
   });
 });
 
 document.getElementById("pedidos-pizzas-btn")?.addEventListener("click", showPedidosPizzasStats);
+document.getElementById("pedidos-entregas-btn")?.addEventListener("click", showPedidosEntregasStats);
+document.getElementById("pedidos-pizzas-valor-btn")?.addEventListener("click", showPedidosPizzasValorStats);
 
 function formatTimestamp(value) {
   const date = new Date(value);
@@ -1300,7 +1370,7 @@ function initSectionNav() {
   panels.forEach((panel) => {
     const h2 = panel.querySelector("h2");
     if (!h2) return;
-    const label = h2.textContent.replace("Cardápio — ", "").replace("Vendas dos funcionários", "Vendas").replace("Turnos de funcionários", "Turnos").replace("Acesso do entregador", "Entregador").replace("Tamanhos das pizzas", "Tamanhos").replace("Backups do cardápio", "Backups").trim();
+    const label = h2.textContent.replace("Cardápio — ", "").replace("Vendas dos funcionários", "Vendas").replace("Turnos de funcionários", "Turnos").replace("Senhas de acesso das telas", "Senhas").replace("Tamanhos das pizzas", "Tamanhos").replace("Backups do cardápio", "Backups").trim();
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = label;
@@ -1317,6 +1387,7 @@ setupCropper();
 initSectionNav();
 initCollapsiblePanels();
 initItemToolbars();
+initAccessPagesLinks();
 loadData();
 loadBackups();
 loadCourierStatus();

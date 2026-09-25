@@ -181,6 +181,7 @@ function orderHTML(order) {
   const age = order.age_min == null ? "" : ` · há ${order.age_min} min`;
   const details = [
     order.is_delivery && order.address ? `<p><span>Endereço</span> ${escapeHTML(order.address)}</p>` : "",
+    order.customer_phone ? `<p><span>Telefone</span> ${escapeHTML(order.customer_phone)}</p>` : "",
     order.notes ? `<p class="k-notes"><span>Observações</span> ${escapeHTML(order.notes)}</p>` : "",
     order.payment_method ? `<p><span>Pagamento</span> ${escapeHTML(order.payment_method)}${order.troco_paid_with != null ? ` — troco para ${formatPrice(order.troco_paid_with)}` : ""}</p>` : "",
     `<p><span>Total</span> ${formatPrice(order.total)}</p>`,

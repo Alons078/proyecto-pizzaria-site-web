@@ -4,6 +4,7 @@
 
 let lastSignature = "";
 let poller = null;
+const lastStageByToken = {}; // pra saber quando a etapa de um pedido avançou e animar
 
 function escapeHTML(value) {
   return String(value ?? "")
@@ -101,10 +102,22 @@ async function load() {
       list.innerHTML = `<p class="cart-empty">Nenhum pedido encontrado.</p>`;
       return;
     }
+    // Antes de trocar o HTML, guarda quais pedidos avançaram de etapa desde
+    // a última vez, pra animar só a bolinha que realmente mudou.
+    const advancedTokens = data.orders
+      .filter((o) => lastStageByToken[o.token] !== undefined && lastStageByToken[o.token] !== o.stage)
+      .map((o) => o.token);
+
     list.innerHTML = data.orders.map(orderHTML).join("");
     list.querySelectorAll(".my-order-cancel").forEach((btn) => {
       btn.addEventListener("click", () => cancelOrder(btn.closest(".my-order").dataset.token, btn));
     });
+    advancedTokens.forEach((token) => {
+      const article = list.querySelector(`.my-order[data-token="${CSS.escape(token)}"]`);
+      const dot = article && article.querySelector(".stage-step.is-current .stage-dot");
+      if (dot) dot.classList.add("is-popping");
+    });
+    data.orders.forEach((o) => { lastStageByToken[o.token] = o.stage; });
   } catch (error) {
     console.error(error);
   }

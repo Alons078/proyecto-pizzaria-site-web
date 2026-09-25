@@ -99,6 +99,7 @@ function cartOrderMessage(cart, total, checkout) {
   if (checkout.deliveryFeeText === "a combinar") message += " (+ taxa de entrega)";
   message += "\n\n";
   message += `Nome: ${checkout.name}\n`;
+  if (checkout.phone) message += `Telefone: ${checkout.phone}\n`;
   message += `Entrega: ${checkout.delivery}\n`;
   if (checkout.delivery === "Entrega (delivery)" && checkout.address) {
     message += `Endereço: ${checkout.address}\n`;
@@ -119,6 +120,7 @@ function cartRegisterOrder(cart, checkout) {
   const payload = {
     items: cart.map((line) => ({ name: line.name, qty: line.qty, unit_price: line.unit_price, pizza_count: line.pizza_count || 0 })),
     customer_name: checkout.name,
+    customer_phone: checkout.phone,
     delivery_type: checkout.delivery,
     address: checkout.address,
     payment_method: checkout.payment,
@@ -354,17 +356,65 @@ function cartAttachDeliveryZone(root) {
   if (streetInput) streetInput.addEventListener("input", sync);
 }
 
-/* Bolinha com a quantidade de itens no carrinho, mostrada perto da marca. */
+/* Bolinha com a quantidade de itens no carrinho, mostrada perto da marca.
+ * Quando a quantidade sobe, a bolinha dá um "pulinho" (feedback visual de
+ * que algo entrou no carrinho). */
+let cartLastBadgeCount = null;
 function cartUpdateBadge() {
   const badge = document.getElementById("cart-badge");
   if (!badge) return;
   const count = cartCount(cartLoad());
+  const wentUp = cartLastBadgeCount !== null && count > cartLastBadgeCount;
   if (count > 0) {
     badge.textContent = count;
     badge.style.display = "inline-flex";
   } else {
     badge.style.display = "none";
   }
+  if (wentUp) {
+    badge.classList.remove("is-bumping");
+    // força reflow pra poder tocar a animação de novo mesmo se já rodou
+    void badge.offsetWidth;
+    badge.classList.add("is-bumping");
+    const link = badge.closest(".cart-link");
+    if (link) {
+      link.classList.remove("is-bumping");
+      void link.offsetWidth;
+      link.classList.add("is-bumping");
+    }
+  }
+  cartLastBadgeCount = count;
+}
+
+/*
+ * Anima um item "voando" do botão que foi clicado até o ícone do carrinho
+ * (efeito comum em apps de delivery pra confirmar visualmente que o produto
+ * entrou no carrinho). Se não achar o carrinho na tela (ex.: página do
+ * carrinho, que não tem o ícone no cabeçalho), a função simplesmente não
+ * faz nada — sem erro.
+ */
+function cartFlyToBadge(originEl, emoji) {
+  const target = document.querySelector(".cart-link");
+  if (!originEl || !target || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const from = originEl.getBoundingClientRect();
+  const to = target.getBoundingClientRect();
+
+  const flyer = document.createElement("span");
+  flyer.className = "cart-fly-item";
+  flyer.textContent = emoji || "🍕";
+  flyer.style.left = `${from.left + from.width / 2 - 11}px`;
+  flyer.style.top = `${from.top + from.height / 2 - 11}px`;
+  flyer.style.setProperty("--fly-dx", `${to.left + to.width / 2 - (from.left + from.width / 2)}px`);
+  flyer.style.setProperty("--fly-dy", `${to.top + to.height / 2 - (from.top + from.height / 2)}px`);
+  document.body.appendChild(flyer);
+
+  flyer.addEventListener("animationend", () => {
+    flyer.remove();
+    cartUpdateBadge();
+  }, { once: true });
+  // segurança: remove mesmo se o animationend não disparar por algum motivo
+  setTimeout(() => flyer.remove(), 900);
 }
 
 document.addEventListener("DOMContentLoaded", cartUpdateBadge);

@@ -889,6 +889,14 @@ header.top {
   margin: 12px 0 0;
 }
 
+.checkout-hint {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
 .pix-missing {
   color: var(--tomato);
   font-family: var(--font-mono);
@@ -1051,6 +1059,30 @@ h2.panel-toggle-heading {
 }
 
 .print-token-row button:hover { border-color: var(--ember-dark); }
+
+/* ---------- resumo de senhas das telas (cozinha, entregador...) ---------- */
+.access-page-block {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+.access-page-block:first-of-type { border-top: none; padding-top: 6px; }
+.access-page-name {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 17px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.access-page-path {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.access-page-block .field { margin-top: 10px; }
 
 .row {
   display: grid;
@@ -1641,6 +1673,14 @@ h2.panel-toggle-heading {
 
 .sales-stat-highlight { border-color: var(--ember); }
 
+.pedidos-stats-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pedidos-stats-btns .add-item-btn { margin: 0; }
+
 .sales-table {
   width: 100%;
   border-collapse: collapse;
@@ -1913,6 +1953,50 @@ h2.panel-toggle-heading {
 
 .item-featured-field input { accent-color: var(--ember); }
 
+/* ---------- entrada suave da hero ao carregar a página ---------- */
+
+@keyframes fadeUpIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+.logo-big,
+.hero .eyebrow,
+.hero h1,
+.hero p.lead,
+.hero .image-slot {
+  animation: fadeUpIn 0.7s cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+.logo-big { animation-delay: 0s; }
+.hero .eyebrow { animation-delay: 0.08s; }
+.hero h1 { animation-delay: 0.16s; }
+.hero p.lead { animation-delay: 0.24s; }
+.hero .image-slot { animation-delay: 0.32s; }
+
+/* ---------- brilho que segue o cursor (só desktop, criado via JS) ---------- */
+
+.cursor-glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 380px;
+  height: 380px;
+  margin-left: -190px;
+  margin-top: -190px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 122, 61, 0.16) 0%, rgba(255, 122, 61, 0) 70%);
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  will-change: transform;
+}
+
+@media (pointer: coarse) {
+  .cursor-glow { display: none; }
+}
+
 /* ---------- aparição suave ao rolar a página ---------- */
 
 .reveal {
@@ -1926,6 +2010,251 @@ h2.panel-toggle-heading {
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
   .card:hover, .highlight-card:hover { transform: none; }
+  .logo-big, .hero .eyebrow, .hero h1, .hero p.lead, .hero .image-slot {
+    animation: none !important;
+  }
+  .cursor-glow { display: none !important; }
+  .cart-badge.is-bumping,
+  .add-to-cart-btn.is-added,
+  .stage-dot.is-popping,
+  .stage-step::before,
+  .checkout-btn.is-loading,
+  .cart-fly-item,
+  .order-success-check circle,
+  .order-success-check path,
+  .confetti-piece,
+  .privacy-banner {
+    animation: none !important;
+    transition: none !important;
+  }
+  .cart-fly-item, .order-success-overlay { display: none !important; }
+}
+
+/* ---------- animações: adicionar ao carrinho ---------- */
+@keyframes cart-badge-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.45); }
+  60% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+.cart-badge.is-bumping { animation: cart-badge-bump 0.45s cubic-bezier(.34,1.56,.64,1); }
+
+.cart-link { transition: transform 0.2s ease; }
+.cart-link.is-bumping { animation: cart-badge-bump 0.4s cubic-bezier(.34,1.56,.64,1); }
+
+/* item "voando" do botão até o carrinho */
+.cart-fly-item {
+  position: fixed;
+  z-index: 200;
+  font-size: 22px;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: cart-fly-move 0.7s cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes cart-fly-move {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(var(--fly-dx), var(--fly-dy)) scale(0.35); opacity: 0; }
+}
+
+.add-to-cart-btn { transition: transform 0.15s ease, background 0.25s ease, color 0.25s ease; }
+.add-to-cart-btn.is-added {
+  background: var(--ember) !important;
+  color: var(--paper) !important;
+  animation: add-btn-pop 0.4s ease;
+}
+@keyframes add-btn-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* ---------- animações: pedido finalizado ---------- */
+.order-success-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(20, 14, 10, 0.78);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  animation: order-overlay-in 0.25s ease forwards;
+}
+@keyframes order-overlay-in { to { opacity: 1; } }
+.order-success-check circle {
+  stroke: var(--ember);
+  stroke-width: 5;
+  fill: none;
+  stroke-dasharray: 220;
+  stroke-dashoffset: 220;
+  animation: order-check-circle 0.5s ease forwards;
+}
+.order-success-check path {
+  stroke: var(--paper);
+  stroke-width: 6;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: order-check-mark 0.35s ease forwards 0.45s;
+}
+@keyframes order-check-circle { to { stroke-dashoffset: 0; } }
+@keyframes order-check-mark { to { stroke-dashoffset: 0; } }
+.order-success-text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 22px;
+  color: var(--paper);
+  text-align: center;
+  opacity: 0;
+  animation: order-text-in 0.4s ease forwards 0.5s;
+}
+@keyframes order-text-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.confetti-piece {
+  position: fixed;
+  top: -12px;
+  z-index: 300;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: confetti-fall linear forwards;
+}
+@keyframes confetti-fall {
+  to { transform: translateY(105vh) rotate(540deg); opacity: 0.85; }
+}
+
+.checkout-btn.is-loading { opacity: 0.75; pointer-events: none; }
+
+/* ---------- aviso de privacidade (página do cliente) ---------- */
+.privacy-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 250;
+  background: var(--paper-warm);
+  border-top: 1px solid var(--line-strong);
+  box-shadow: 0 -8px 24px var(--shadow);
+  padding: 14px 16px;
+  animation: privacy-banner-in 0.35s ease;
+}
+@keyframes privacy-banner-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.privacy-banner-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  justify-content: space-between;
+}
+.privacy-banner-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  flex: 1 1 240px;
+}
+.privacy-link-btn {
+  background: none;
+  border: none;
+  color: var(--ember-dark);
+  font-weight: 700;
+  font-family: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+}
+.privacy-banner-actions { display: flex; gap: 10px; flex: 0 0 auto; }
+.privacy-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.2s ease;
+}
+.privacy-btn:hover { transform: translateY(-1px); }
+.privacy-btn-accept { background: var(--ember); border-color: var(--ember); color: var(--paper); }
+.privacy-btn-reject:hover { border-color: var(--ink-soft); }
+
+.privacy-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  background: rgba(10, 8, 6, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.privacy-modal {
+  position: relative;
+  max-width: 520px;
+  width: 100%;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--paper-warm);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  padding: 26px 24px;
+}
+.privacy-modal h2 {
+  font-family: var(--font-display);
+  font-style: italic;
+  margin: 0 0 14px;
+  font-size: 22px;
+}
+.privacy-modal h3 {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ember-dark);
+  margin: 16px 0 6px;
+}
+.privacy-modal p { font-size: 13px; line-height: 1.5; color: var(--ink-soft); margin: 0 0 6px; }
+.privacy-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.privacy-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+@media (max-width: 560px) {
+  .privacy-banner-inner { justify-content: center; text-align: center; }
+  .privacy-banner-actions { width: 100%; justify-content: center; }
+}
+
+/* ---------- animações: avanço de etapa do pedido ---------- */
+.stage-step::before { transition: background-color 0.6s ease; }
+.stage-dot { transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease; }
+.stage-dot.is-popping { animation: stage-dot-pop 0.55s cubic-bezier(.34,1.56,.64,1); }
+@keyframes stage-dot-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.35); box-shadow: 0 0 0 8px rgba(255, 122, 61, 0.28); }
+  100% { transform: scale(1); }
+}
+.stage-step.is-current .stage-label { animation: stage-label-glow 1.6s ease-in-out infinite; }
+@keyframes stage-label-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 /* ---------- taxa de entrega por distância ---------- */

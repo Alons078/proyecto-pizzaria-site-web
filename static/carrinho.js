@@ -82,6 +82,11 @@ function renderCart() {
       <input type="text" id="checkout-name" placeholder="Nome para o pedido">
     </div>
     <div class="checkout-field">
+      <label>Seu telefone</label>
+      <input type="tel" id="checkout-phone" placeholder="Ex.: (21) 99999-9999" inputmode="tel">
+      <p class="checkout-hint">É para o entregador poder te ligar caso precise de alguma informação.</p>
+    </div>
+    <div class="checkout-field">
       <label>Forma de entrega</label>
       <select id="checkout-delivery">
         <option value="Retirada no local">Retirada no local</option>
@@ -282,6 +287,38 @@ function renderCart() {
   });
 }
 
+/* Tela de "pedido enviado": aparece por cima da página enquanto o
+ * navegador troca para o WhatsApp e depois nos leva ao acompanhamento
+ * (esse intervalo já existe em cartGoToTracking, então aproveitamos ele
+ * pra mostrar a confirmação em vez de deixar a tela parada). */
+function showOrderSuccessOverlay() {
+  const overlay = document.createElement("div");
+  overlay.className = "order-success-overlay";
+  overlay.innerHTML = `
+    <svg class="order-success-check" width="88" height="88" viewBox="0 0 90 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="45" cy="45" r="38"></circle>
+      <path d="M28 46 L40 58 L64 32"></path>
+    </svg>
+    <p class="order-success-text">Pedido enviado! 🎉<br>Te levando para o acompanhamento…</p>
+  `;
+  document.body.appendChild(overlay);
+
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const colors = ["#ff7a3d", "#ffd166", "#06d6a0", "#ef476f", "#118ab2"];
+    for (let i = 0; i < 26; i++) {
+      const piece = document.createElement("span");
+      piece.className = "confetti-piece";
+      piece.style.left = `${Math.random() * 100}vw`;
+      piece.style.background = colors[i % colors.length];
+      piece.style.animationDuration = `${1.1 + Math.random() * 0.9}s`;
+      piece.style.animationDelay = `${Math.random() * 0.3}s`;
+      document.body.appendChild(piece);
+      setTimeout(() => piece.remove(), 2500);
+    }
+  }
+  return overlay;
+}
+
 function sendToWhatsApp(cart, subtotal, feeCtl) {
   const warningEl = document.getElementById("checkout-warning");
   const phone = String(storeInfo.whatsapp_number || "").replace(/\D/g, "");
@@ -292,6 +329,7 @@ function sendToWhatsApp(cart, subtotal, feeCtl) {
   }
 
   const name = document.getElementById("checkout-name").value.trim();
+  const customerPhone = document.getElementById("checkout-phone").value.trim();
   const delivery = document.getElementById("checkout-delivery").value;
   const address = document.getElementById("checkout-address").value.trim();
   const payment = document.getElementById("checkout-payment").value;
@@ -300,6 +338,10 @@ function sendToWhatsApp(cart, subtotal, feeCtl) {
 
   if (!name) {
     warningEl.textContent = "Digite seu nome para confirmar o pedido.";
+    return;
+  }
+  if (!customerPhone) {
+    warningEl.textContent = "Digite seu telefone para confirmar o pedido.";
     return;
   }
   if (delivery === "Entrega (delivery)" && !address) {
@@ -332,9 +374,11 @@ function sendToWhatsApp(cart, subtotal, feeCtl) {
     trocoAmount = trocoPaidWith - total;
   }
   warningEl.textContent = "";
+  document.getElementById("checkout-btn").classList.add("is-loading");
+  showOrderSuccessOverlay();
 
   const checkout = {
-    name, delivery, address, payment, notes, trocoPaidWith, trocoAmount,
+    name, phone: customerPhone, delivery, address, payment, notes, trocoPaidWith, trocoAmount,
     deliveryFeeText: feeCtl.feeText(),
   };
 

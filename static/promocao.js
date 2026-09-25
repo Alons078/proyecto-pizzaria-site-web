@@ -197,6 +197,11 @@ function renderPromotion(promo, items) {
         <input type="text" id="buy-now-name" placeholder="Nome para o pedido">
       </div>
       <div class="checkout-field">
+        <label>Seu telefone</label>
+        <input type="tel" id="buy-now-phone" placeholder="Ex.: (21) 99999-9999" inputmode="tel">
+        <p class="checkout-hint">É para o entregador poder te ligar caso precise de alguma informação.</p>
+      </div>
+      <div class="checkout-field">
         <label>Forma de entrega</label>
         <select id="buy-now-delivery">
           <option value="Retirada no local">Retirada no local</option>
@@ -429,8 +434,13 @@ function addToCart() {
 
   const btn = document.getElementById("add-to-cart-btn");
   const original = btn.textContent;
+  cartFlyToBadge(btn, "🎉");
   btn.textContent = "Adicionado ✓";
-  setTimeout(() => { btn.textContent = original; }, 1200);
+  btn.classList.add("is-added");
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove("is-added");
+  }, 1200);
 }
 
 /* Botão "Pagar agora": adiciona esta promoção (com os sabores/borda
@@ -455,6 +465,7 @@ function buyNowConfirm(event) {
   }
 
   const customerName = document.getElementById("buy-now-name").value.trim();
+  const customerPhone = document.getElementById("buy-now-phone").value.trim();
   const delivery = document.getElementById("buy-now-delivery").value;
   const address = document.getElementById("buy-now-address").value.trim();
   const payment = document.getElementById("buy-now-payment").value;
@@ -462,6 +473,10 @@ function buyNowConfirm(event) {
 
   if (!customerName) {
     warningEl.textContent = "Digite seu nome para confirmar o pedido.";
+    return;
+  }
+  if (!customerPhone) {
+    warningEl.textContent = "Digite seu telefone para confirmar o pedido.";
     return;
   }
   if (delivery === "Entrega (delivery)" && !address) {
@@ -509,6 +524,7 @@ function buyNowConfirm(event) {
 
   const checkout = {
     name: customerName,
+    phone: customerPhone,
     delivery,
     address,
     payment,

@@ -111,6 +111,7 @@ function orderHTML(order) {
     <div class="k-body">
       <ul class="k-items">${items}</ul>
       <div class="k-details">
+        ${order.customer_phone ? `<p><span>Telefone</span> <a href="tel:${escapeHTML(order.customer_phone.replace(/\D/g, ""))}">${escapeHTML(order.customer_phone)}</a></p>` : ""}
         ${order.notes ? `<p class="k-notes"><span>Observações</span> ${escapeHTML(order.notes)}</p>` : ""}
         ${paymentLine(order)}
       </div>
