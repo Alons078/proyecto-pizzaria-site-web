@@ -106,8 +106,8 @@ function renderCart() {
       <select id="checkout-payment">
         <option value="Dinheiro">Dinheiro</option>
         <option value="Cartão na entrega">Cartão na entrega</option>
-        <option value="Pix">Pix</option>
-      </select>
+        <option value="Pix na maquininha ">Pix na maquina /option>
+      </select> 
     </div>
     <div class="checkout-field pix-section" id="pix-section" style="display:none;"></div>
     <div class="checkout-field" id="troco-field">
