@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
     customer_name TEXT NOT NULL DEFAULT '',
+    customer_phone TEXT NOT NULL DEFAULT '',
     delivery_type TEXT NOT NULL DEFAULT '',
     address TEXT NOT NULL DEFAULT '',
     payment_method TEXT NOT NULL DEFAULT '',
@@ -206,6 +207,12 @@ def init_db():
         conn.commit()
     if "delivery_fee" not in existing_order_columns:
         conn.execute("ALTER TABLE orders ADD COLUMN delivery_fee REAL")
+        conn.commit()
+
+    # Telefone do cliente: coluna nova, para bancos criados antes desse
+    # recurso existir (pedidos antigos ficam com telefone em branco).
+    if "customer_phone" not in existing_order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN customer_phone TEXT NOT NULL DEFAULT ''")
         conn.commit()
 
     # Etapas do pedido (painel da cozinha): confirmado -> pronto -> em_rota
@@ -825,11 +832,12 @@ def insert_order(order):
     try:
         cursor = conn.execute(
             """INSERT INTO orders
-            (created_at, customer_name, delivery_type, address, payment_method, notes, items_json, total, status, troco_paid_with, troco_amount, delivery_fee, stage, stage_updated_at, track_token)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?, 'confirmado', ?, ?)""",
+            (created_at, customer_name, customer_phone, delivery_type, address, payment_method, notes, items_json, total, status, troco_paid_with, troco_amount, delivery_fee, stage, stage_updated_at, track_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?, 'confirmado', ?, ?)""",
             (
                 order.get("created_at"),
                 order.get("customer_name", ""),
+                order.get("customer_phone", ""),
                 order.get("delivery_type", ""),
                 order.get("address", ""),
                 order.get("payment_method", ""),
@@ -857,6 +865,7 @@ def _order_row_to_dict(r):
         "id": r["id"],
         "created_at": r["created_at"],
         "customer_name": r["customer_name"],
+        "customer_phone": r["customer_phone"] if "customer_phone" in r.keys() else "",
         "delivery_type": r["delivery_type"],
         "address": r["address"],
         "payment_method": r["payment_method"],
@@ -920,7 +929,7 @@ def cancel_order_by_token(token):
     conn = get_connection()
     try:
         cursor = conn.execute(
-            "UPDATE orders SET stage = 'cancelado', stage_updated_at = ? WHERE track_token = ? AND stage = 'confirmado'",
+            "UPDATE orders SET stage = 'cancelado', stage_updated_at = ?, customer_phone = '' WHERE track_token = ? AND stage = 'confirmado'",
             (datetime_now_iso(), token),
         )
         conn.commit()
@@ -940,7 +949,7 @@ def cancel_order(order_id):
     conn = get_connection()
     try:
         cursor = conn.execute(
-            "UPDATE orders SET stage = 'cancelado', stage_updated_at = ? WHERE id = ? AND stage NOT IN ('entregue', 'cancelado')",
+            "UPDATE orders SET stage = 'cancelado', stage_updated_at = ?, customer_phone = '' WHERE id = ? AND stage NOT IN ('entregue', 'cancelado')",
             (datetime_now_iso(), order_id),
         )
         conn.commit()
@@ -976,10 +985,18 @@ def advance_order_stage(order_id, expected_stage):
         target = next_stage(row["stage"], row["delivery_type"])
         if not target:
             return None
-        cursor = conn.execute(
-            "UPDATE orders SET stage = ?, stage_updated_at = ? WHERE id = ? AND stage = ?",
-            (target, datetime_now_iso(), order_id, expected_stage),
-        )
+        # Ao entregar, o pedido está finalizado: apaga o telefone do cliente,
+        # já que não precisamos mais guardar esse dado pessoal.
+        if target == "entregue":
+            cursor = conn.execute(
+                "UPDATE orders SET stage = ?, stage_updated_at = ?, customer_phone = '' WHERE id = ? AND stage = ?",
+                (target, datetime_now_iso(), order_id, expected_stage),
+            )
+        else:
+            cursor = conn.execute(
+                "UPDATE orders SET stage = ?, stage_updated_at = ? WHERE id = ? AND stage = ?",
+                (target, datetime_now_iso(), order_id, expected_stage),
+            )
         conn.commit()
         if cursor.rowcount == 0:
             return None

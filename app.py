@@ -24,6 +24,7 @@ from flask import Flask, jsonify, request, render_template, session, redirect, u
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from functools import wraps
 import os
 import uuid
@@ -121,13 +122,25 @@ def is_allowed_image(filename):
     )
 
 
+FUSO_LOJA = ZoneInfo("America/Sao_Paulo")
+
+
 def is_open_now(store):
-    """Decide se a loja está aberta pelo horário ou pelo status forçado."""
+    """Decide se a loja está aberta pelo horário ou pelo status forçado.
+
+    Importante: usamos sempre o horário de Río de Janeiro (America/Sao_Paulo),
+    não o horário do servidor. O Render roda os containers em UTC, então sem
+    isso a loja fechava (e abria) 3 horas antes do horário configurado."""
     if store.get("force_status") is not None:
         return store["force_status"]
 
-    now = datetime.now().strftime("%H:%M")
-    return store["hours"]["open"] <= now <= store["hours"]["close"]
+    now = datetime.now(FUSO_LOJA).strftime("%H:%M")
+    hours = store["hours"]
+    if hours["open"] <= hours["close"]:
+        # Caso normal: não cruza a meia-noite (ej. 18:00 - 23:00).
+        return hours["open"] <= now <= hours["close"]
+    # Caso em que o fechamento é depois da meia-noite (ej. 18:00 - 01:00).
+    return now >= hours["open"] or now <= hours["close"]
 
 
 def require_admin(view):
@@ -414,6 +427,7 @@ def create_order():
     order = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "customer_name": str(body.get("customer_name") or "")[:120],
+        "customer_phone": str(body.get("customer_phone") or "")[:30],
         "delivery_type": delivery_type,
         "address": address,
         "payment_method": payment_method,
