@@ -16,8 +16,7 @@ Variáveis de ambiente usadas em produção (configure-as no Render):
 - SECRET_KEY      -> chave para assinar os cookies de sessão
 - PORT            -> porta em que o servidor escuta (o Render define sozinho)
 - FLASK_DEBUG     -> "1" para ligar o modo debug (deixe desligado em produção)
-- PIZZERIA_LAT, PIZZERIA_LON -> coordenadas da pizzaria (taxa de entrega automática)
-- FEE_RADIUS_KM, FEE_BASE, FEE_EXTRA, MAX_DELIVERY_KM -> regra da taxa (veja geocoding.py)
+- NEIGHBORHOOD_FEES -> taxas fixas de entrega por zona (veja delivery_fee.py)
 """
 
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for
@@ -33,7 +32,7 @@ import hmac
 import secrets
 
 import db
-import geocoding
+import delivery_fee
 
 
 def _is_password_hash(value):
@@ -93,10 +92,6 @@ if not ADMIN_PASSWORD:
 if not os.environ.get("SECRET_KEY"):
     print("AVISO: a variável de ambiente SECRET_KEY não foi definida — "
           "as sessões (login) serão invalidadas sempre que o servidor reiniciar.")
-
-if not geocoding.is_configured():
-    print("AVISO: PIZZERIA_LAT / PIZZERIA_LON não definidos — a taxa de entrega "
-          "automática fica desligada (o pedido segue com 'taxa a combinar').")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -337,17 +332,16 @@ def get_promotion(promo_id):
     })
 
 
-# ---------- taxa de entrega por distância ----------
+# ---------- taxa de entrega por zona ----------
 
 @app.route("/api/calcular-tarifa", methods=["POST"])
 def calcular_tarifa():
-    """Recebe {address} e devolve {fee, distance_km, cached}. Endereços já
-    consultados saem do cache; os novos passam pela fila do Nominatim (1 req/s)
-    e por isso podem levar alguns segundos."""
+    """Recebe {address} e devolve {fee, distance_km, cached}. Resposta na
+    hora: é só conferir se o texto cita uma zona com taxa fixa conhecida."""
     body = request.get_json(silent=True) or {}
     try:
-        result = geocoding.calculate_fee(body.get("address"))
-    except geocoding.GeocodingError as exc:
+        result = delivery_fee.calculate_fee(body.get("address"))
+    except delivery_fee.DeliveryFeeError as exc:
         payload = {"ok": False, "code": exc.code, "error": exc.message}
         payload.update(exc.extra)
         return jsonify(payload), exc.status
@@ -400,15 +394,15 @@ def create_order():
     delivery_type = str(body.get("delivery_type") or "")[:60]
     address = str(body.get("address") or "")[:300]
 
-    # Taxa de entrega: o servidor a busca no cache de geocodificação (que o
-    # próprio cliente acabou de preencher ao calcular a taxa). Não aceitamos
-    # o valor vindo do navegador, senão qualquer um mandaria taxa = 0.
-    # Sem taxa em cache -> None ("a combinar" pelo WhatsApp).
-    delivery_fee = None
+    # Taxa de entrega: o servidor confere de novo se o endereço cita uma zona
+    # com taxa fixa. Não aceitamos o valor vindo do navegador, senão qualquer
+    # um mandaria taxa = 0. Sem zona reconhecida -> None ("a combinar" pelo
+    # WhatsApp).
+    order_delivery_fee = None
     if delivery_type == "Entrega (delivery)":
-        delivery_fee = geocoding.lookup_cached_fee(address)
-        if delivery_fee is not None:
-            total += delivery_fee
+        order_delivery_fee = delivery_fee.lookup_cached_fee(address)
+        if order_delivery_fee is not None:
+            total += order_delivery_fee
 
     payment_method = str(body.get("payment_method") or "")[:60]
 
@@ -440,7 +434,7 @@ def create_order():
         "total": round(total, 2),
         "troco_paid_with": troco_paid_with,
         "troco_amount": troco_amount,
-        "delivery_fee": delivery_fee,
+        "delivery_fee": order_delivery_fee,
         # Código secreto (impossível de adivinhar) para o cliente acompanhar
         # o pedido em /pedido/<código> sem precisar de login.
         "track_token": secrets.token_urlsafe(12),

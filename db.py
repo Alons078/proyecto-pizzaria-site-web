@@ -142,18 +142,6 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL
 );
 
--- Cache de geocodificação: cada endereço só vai UMA vez ao Nominatim.
--- lat/lon/distance_km são fatos do endereço; delivery_fee é a taxa
--- calculada com as regras vigentes na hora (NULL = fora da área).
-CREATE TABLE IF NOT EXISTS geocoded_addresses (
-    id INTEGER PRIMARY KEY,
-    address_text TEXT UNIQUE,
-    lat REAL,
-    lon REAL,
-    distance_km REAL,
-    delivery_fee REAL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 """
 
 
@@ -764,55 +752,6 @@ def insert_sale(sale):
     except Exception:
         conn.rollback()
         raise
-    finally:
-        conn.close()
-
-
-# ---------- cache de geocodificação (taxa de entrega) ----------
-
-def get_geocoded(address_text):
-    """Devolve a linha do cache para esse endereço (já normalizado) ou None."""
-    conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT address_text, lat, lon, distance_km, delivery_fee FROM geocoded_addresses WHERE address_text = ?",
-            (address_text,),
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def save_geocoded(address_text, lat, lon, distance_km, delivery_fee):
-    """Grava (ou atualiza) um endereço geocodificado. UNIQUE em address_text
-    evita duplicatas se duas requisições gravarem o mesmo endereço."""
-    conn = get_connection()
-    try:
-        conn.execute(
-            """INSERT INTO geocoded_addresses (address_text, lat, lon, distance_km, delivery_fee)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(address_text) DO UPDATE SET
-                lat = excluded.lat, lon = excluded.lon,
-                distance_km = excluded.distance_km, delivery_fee = excluded.delivery_fee""",
-            (address_text, lat, lon, distance_km, delivery_fee),
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def update_geocoded_fee(address_text, delivery_fee):
-    """Atualiza só a taxa (quando o dono muda a tabela de preços)."""
-    conn = get_connection()
-    try:
-        conn.execute(
-            "UPDATE geocoded_addresses SET delivery_fee = ? WHERE address_text = ?",
-            (delivery_fee, address_text),
-        )
-        conn.commit()
     finally:
         conn.close()
 
