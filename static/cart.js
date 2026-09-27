@@ -209,8 +209,7 @@ cartShowTrackingPill();
  * ---------- taxa de entrega por distância ----------
  * Usado pelas três telas de checkout (carrinho, produto, promoção).
  * Pergunta ao servidor (POST /api/calcular-tarifa) a taxa do endereço.
- * Endereço novo pode levar alguns segundos (fila de 1 req/s do Nominatim);
- * endereço já consultado responde na hora (cache).
+ * Resposta na hora: é só conferir se o texto cita uma zona conhecida.
  */
 const CART_DELIVERY_VALUE = "Entrega (delivery)";
 
@@ -330,7 +329,7 @@ function cartAttachDeliveryFee({ deliverySelect, addressInput, mount, onChange }
  * ---------- zona de entrega (Piscinão de Ramos / Ramos) ----------
  * Em vez de um texto livre para o endereço, o cliente escolhe primeiro a
  * zona (botões) e só depois aparece o campo de rua/número. O endereço
- * final gravado no input hidden é "<rua>, <zona>", para que geocoding.py
+ * final gravado no input hidden é "<rua>, <zona>", para que delivery_fee.py
  * continue casando por substring ("ramos" / "piscinão de ramos").
  */
 function cartAttachDeliveryZone(root) {
