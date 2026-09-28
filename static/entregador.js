@@ -1,17 +1,29 @@
-/* Painel do entregador: pedidos de ENTREGA que já saíram da cozinha
- * (etapa "em rota"), a mais antiga em cima. Cada pedido tem um botão
- * "Confirmar entrega" que passa o pedido para "entregue": some daqui, some
- * da tela da cozinha e o cliente vê "Pedido entregue" — tudo sozinho. */
+/* Painel do entregador: pedidos de ENTREGA que precisam dele, a mais antiga em
+ * cima. Dois momentos:
+ *   - "Pronto"  -> a cozinha terminou: toca o alarme (e chega um aviso no
+ *                  celular mesmo com o navegador fechado). Botão "Saí para
+ *                  entrega" quando ele pega o pedido.
+ *   - "Em rota" -> botão "Confirmar entrega": some daqui, some da cozinha e o
+ *                  cliente vê "Pedido entregue".
+ * Também mostra a contagem de entregas da NOITE (começa quando o entregador
+ * entra) e o botão "Fechar entregas", que manda o total para o admin. */
 
-const POLL_MS = 3000;
+const POLL_MS = 5000;
+const ALARM_EVERY_MS = 8000;   // repete o alarme até o entregador tocar em "Entendi"
+const ALARM_MAX_PLAYS = 8;
 let orders = [];
 let lastSignature = "";
 let knownIds = null;
+let knownReady = null;        // ids que já estavam "prontos" (null = ainda não carregou)
+const alarmIds = new Set();   // prontos que o entregador ainda não reconheceu
+let alarmPlays = 0;
+let lastAlarmAt = 0;
 const openIds = new Set();
 const busyIds = new Set();
 let poller = null;
 let audioCtx = null;
 let wakeLock = null;
+let shiftBusy = false;
 
 function escapeHTML(value) {
   return String(value ?? "")
@@ -52,19 +64,107 @@ async function keepScreenOn() {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && poller) keepScreenOn(); });
 
-function beep() {
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.frequency.value = 660;
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.5);
-  } catch (_) { /* sem áudio: tudo bem */ }
+/* ---------- som ----------
+ * Os navegadores só liberam som depois de um toque na página; por isso o
+ * botão "Toque para ativar o som" aparece enquanto estiver bloqueado. */
+
+function getAudio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+    audioCtx.onstatechange = updateSoundButton;
+  }
+  return audioCtx;
+}
+
+async function unlockAudio() {
+  const ctx = getAudio();
+  if (!ctx) return false;
+  if (ctx.state === "suspended") {
+    try { await ctx.resume(); } catch (_) { /* ainda bloqueado */ }
+  }
+  updateSoundButton();
+  return ctx.state === "running";
+}
+
+function soundIsOn() { return !!audioCtx && audioCtx.state === "running"; }
+
+function updateSoundButton() {
+  const btn = document.getElementById("d-sound");
+  if (!btn) return;
+  const on = soundIsOn();
+  btn.textContent = on ? "🔊 Testar som" : "🔇 Toque para ativar o som";
+  btn.classList.toggle("is-alert", !on);
+}
+
+["pointerdown", "keydown", "touchstart"].forEach((type) => {
+  document.addEventListener(type, () => { if (!soundIsOn()) unlockAudio(); }, { passive: true });
+});
+
+/* Toque alto e bem diferente de um "plim": "ding-ding-DING" duas vezes. */
+function playAlarmSound() {
+  if (!soundIsOn()) return;
+  const ctx = audioCtx;
+  const master = ctx.createGain();
+  master.gain.value = 0.95;
+  const limiter = ctx.createDynamicsCompressor();
+  master.connect(limiter);
+  limiter.connect(ctx.destination);
+  const notes = [659.25, 783.99, 1046.5];
+  const start = ctx.currentTime + 0.02;
+  [0, 0.75].forEach((offset) => {
+    notes.forEach((freq, i) => {
+      const t = start + offset + i * 0.16;
+      const dur = i === 2 ? 0.36 : 0.14;
+      [["square", freq, 0.32], ["sine", freq * 2, 0.22]].forEach(([type, f, level]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = f;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(level, t + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+      });
+    });
+  });
+}
+
+/* ---------- alarme de "pedido pronto" ---------- */
+
+const BASE_TITLE = document.title;
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !alarmIds.size) document.title = BASE_TITLE; });
+
+function ringAlarm() {
+  playAlarmSound();
+  try { if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]); } catch (_) { /* sem vibração */ }
+  alarmPlays += 1;
+  lastAlarmAt = Date.now();
+}
+
+function updateAlarmBanner() {
+  const banner = document.getElementById("d-alarm");
+  if (!banner) return;
+  if (!alarmIds.size) {
+    banner.style.display = "none";
+    document.title = BASE_TITLE;
+    return;
+  }
+  const ids = [...alarmIds].sort((a, b) => a - b).map((id) => `#${id}`).join(", ");
+  document.getElementById("d-alarm-text").textContent =
+    alarmIds.size === 1 ? `🍕 Pedido ${ids} PRONTO na cozinha!` : `🍕 ${alarmIds.size} pedidos prontos: ${ids}`;
+  banner.style.display = "flex";
+  if (document.hidden) document.title = `🍕 PRONTO ${ids}`;
+}
+
+// Chamado a cada atualização da lista: toca o alarme de novo de tempos em
+// tempos enquanto houver pedido pronto que ele ainda não reconheceu.
+function maybeRepeatAlarm() {
+  if (alarmIds.size && alarmPlays < ALARM_MAX_PLAYS && Date.now() - lastAlarmAt >= ALARM_EVERY_MS) ringAlarm();
 }
 
 /* ---------- desenho da lista ---------- */
@@ -89,20 +189,26 @@ function paymentLine(order) {
 
 function orderHTML(order) {
   const isOpen = openIds.has(order.id);
+  const isReady = order.stage === "pronto";
   const items = (order.items || []).map((it) =>
     `<li><strong>${escapeHTML(it.qty)}x</strong> ${escapeHTML(it.name)}</li>`).join("");
-  const route = order.route_min == null ? "" : ` · em rota há ${order.route_min} min`;
+  const sub = isReady
+    ? `<span class="d-ready-tag">PRONTO — pegar na cozinha</span>${order.ready_min == null ? "" : ` · há ${order.ready_min} min`}`
+    : `🛵 Entrega${order.route_min == null ? "" : ` · em rota há ${order.route_min} min`}`;
   const mapsUrl = order.address
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`
     : "";
+  const button = isReady
+    ? `<button type="button" class="save-btn k-next d-pickup"${busyIds.has(order.id) ? " disabled" : ""}>🛵 Saí para entrega</button>`
+    : `<button type="button" class="save-btn k-next d-confirm"${busyIds.has(order.id) ? " disabled" : ""}>✅ Confirmar entrega</button>`;
 
   return `
-  <article class="k-order stage-em_rota${isOpen ? " is-open" : ""}" data-id="${order.id}">
+  <article class="k-order stage-${escapeHTML(order.stage)}${isOpen ? " is-open" : ""}" data-id="${order.id}">
     <button type="button" class="k-head" aria-expanded="${isOpen}">
       <span class="k-num">#${order.id}</span>
       <span class="k-who">
         <strong>${escapeHTML(order.customer_name || "Sem nome")}</strong>
-        <small>🛵 Entrega${route}</small>
+        <small>${sub}</small>
       </span>
       <span class="k-chevron">▾</span>
     </button>
@@ -116,7 +222,7 @@ function orderHTML(order) {
         ${paymentLine(order)}
       </div>
     </div>
-    <button type="button" class="save-btn k-next d-confirm"${busyIds.has(order.id) ? " disabled" : ""}>✅ Confirmar entrega</button>
+    ${button}
   </article>`;
 }
 
@@ -124,7 +230,7 @@ function render() {
   const list = document.getElementById("d-list");
   document.getElementById("d-count").textContent = orders.length ? `(${orders.length})` : "";
   if (!orders.length) {
-    list.innerHTML = `<div class="empty-items">Nenhuma entrega em rota agora. Quando a cozinha marcar um pedido como "em rota", ele aparece aqui.</div>`;
+    list.innerHTML = `<div class="empty-items">Nenhuma entrega agora. Quando a cozinha marcar um pedido de entrega como "pronto", ele aparece aqui (com aviso sonoro).</div>`;
     return;
   }
   list.innerHTML = orders.map(orderHTML).join("");
@@ -137,11 +243,25 @@ function render() {
       card.querySelector(".k-head").setAttribute("aria-expanded", String(open));
       if (open) openIds.add(id); else openIds.delete(id);
     });
-    card.querySelector(".d-confirm").addEventListener("click", () => confirmDelivery(id));
+    card.querySelector(".d-confirm")?.addEventListener("click", () => confirmDelivery(id));
+    card.querySelector(".d-pickup")?.addEventListener("click", () => pickupOrder(id));
   });
 }
 
 /* ---------- servidor ---------- */
+
+function renderShift(shift) {
+  const countEl = document.getElementById("d-shift-count");
+  const sinceEl = document.getElementById("d-shift-since");
+  if (!countEl) return;
+  countEl.textContent = shift ? shift.deliveries : 0;
+  sinceEl.textContent = shift ? `Desde as ${formatClock(shift.started_at)}` : "Nenhuma contagem aberta";
+}
+
+function formatClock(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
 
 async function loadOrders() {
   try {
@@ -150,15 +270,27 @@ async function loadOrders() {
     const data = await res.json();
     if (!data.ok) { setLive(false); return; }
     setLive(true);
+    renderShift(data.shift);
 
     const ids = data.orders.map((o) => o.id);
-    if (knownIds !== null) {
-      const fresh = ids.filter((id) => !knownIds.has(id));
-      if (fresh.length) {
-        beep();
-        showToast(fresh.length === 1 ? `Nova entrega: pedido #${fresh[0]}` : `${fresh.length} novas entregas`);
+    const readyIds = data.orders.filter((o) => o.stage === "pronto").map((o) => o.id);
+    const routeIds = data.orders.filter((o) => o.stage === "em_rota").map((o) => o.id);
+
+    if (knownReady !== null) {
+      const freshReady = readyIds.filter((id) => !knownReady.has(id));
+      if (freshReady.length) {
+        freshReady.forEach((id) => alarmIds.add(id));
+        alarmPlays = 0;
+        ringAlarm();
+        showToast(freshReady.length === 1 ? `Pedido #${freshReady[0]} PRONTO!` : `${freshReady.length} pedidos prontos!`);
       }
     }
+    knownReady = new Set(readyIds);
+    // O alarme só vale para pedidos que ainda estão prontos (se ele já pegou, some).
+    [...alarmIds].forEach((id) => { if (!knownReady.has(id)) alarmIds.delete(id); });
+    updateAlarmBanner();
+    maybeRepeatAlarm();
+
     knownIds = new Set(ids);
     [...openIds].forEach((id) => { if (!knownIds.has(id)) openIds.delete(id); });
 
@@ -171,6 +303,26 @@ async function loadOrders() {
   } catch (error) {
     console.error(error);
     setLive(false);
+  }
+}
+
+async function pickupOrder(id) {
+  if (busyIds.has(id)) return;
+  busyIds.add(id);
+  render();
+  try {
+    const res = await fetch(`/api/entregador/pedidos/${id}/sair`, { method: "POST" });
+    if (res.status === 401) { showLogin(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) showToast(data.error || "Não foi possível marcar a saída");
+    else { alarmIds.delete(id); showToast(`Pedido #${id} em rota 🛵`); }
+  } catch (error) {
+    console.error(error);
+    showToast("Sem conexão — tente de novo");
+  } finally {
+    busyIds.delete(id);
+    lastSignature = "";
+    await loadOrders();
   }
 }
 
@@ -197,25 +349,157 @@ async function confirmDelivery(id) {
   }
 }
 
+/* ---------- avisos com o app fechado (push) ---------- */
+
+function urlBase64ToBytes(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+function setPushUI(state) {
+  const btn = document.getElementById("d-push");
+  const hint = document.getElementById("d-push-hint");
+  if (!btn || !hint) return;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  btn.style.display = state === "ask" ? "inline-block" : "none";
+  const messages = {
+    on: "🔔 Avisos ativados: você recebe o aviso de pedido pronto mesmo com o navegador fechado.",
+    denied: "🔕 Avisos bloqueados. Libere as notificações deste site nas configurações do navegador para receber aviso com o app fechado.",
+    unsupported: isIOS && !standalone
+      ? "No iPhone: toque em Compartilhar → “Adicionar à Tela de Início” e abra o app por esse ícone para poder ativar os avisos."
+      : "Este navegador não permite avisos com o app fechado. O alarme toca enquanto esta tela estiver aberta.",
+  };
+  hint.textContent = messages[state] || "";
+  hint.style.display = messages[state] ? "block" : "none";
+}
+
+// fromClick=true quando o entregador tocou no botão (só assim o navegador deixa pedir a permissão).
+async function setupPush(fromClick) {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setPushUI("unsupported");
+      return;
+    }
+    const info = await (await fetch("/api/entregador/push/key", { cache: "no-store" })).json();
+    if (!info.ok || !info.enabled) { setPushUI("none"); return; }
+
+    if (Notification.permission === "denied") { setPushUI("denied"); return; }
+    if (Notification.permission === "default") {
+      if (!fromClick) { setPushUI("ask"); return; }
+      const result = await Notification.requestPermission();
+      if (result !== "granted") { setPushUI(result === "denied" ? "denied" : "ask"); return; }
+    }
+
+    const reg = await navigator.serviceWorker.register("/entregador-sw.js");
+    await navigator.serviceWorker.ready;
+    const key = urlBase64ToBytes(info.key);
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && sub.options && sub.options.applicationServerKey) {
+      const current = new Uint8Array(sub.options.applicationServerKey);
+      if (current.length !== key.length || current.some((b, i) => b !== key[i])) {
+        await sub.unsubscribe();   // chave do servidor mudou: inscreve de novo
+        sub = null;
+      }
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    await fetch("/api/entregador/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sub.toJSON()),
+    });
+    setPushUI("on");
+    if (fromClick) showToast("Avisos ativados ✓");
+  } catch (error) {
+    console.error(error);
+    setPushUI("unsupported");
+  }
+}
+
+async function disablePush() {
+  try {
+    if (!("serviceWorker" in navigator)) return;
+    const reg = await navigator.serviceWorker.getRegistration("/entregador-sw.js");
+    const sub = reg && (await reg.pushManager.getSubscription());
+    if (!sub) return;
+    await fetch("/api/entregador/push/unsubscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+    }).catch(() => {});
+    await sub.unsubscribe();
+  } catch (_) { /* sem problema */ }
+}
+
+if ("serviceWorker" in navigator) {
+  // O service worker avisa quando chega um "pedido pronto" com a tela aberta: atualiza na hora.
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data && event.data.type === "pedido-pronto" && poller) loadOrders();
+  });
+}
+
+/* ---------- fechar a noite de entregas ---------- */
+
+async function closeShift() {
+  if (shiftBusy) return;
+  const pending = orders.length;
+  const count = document.getElementById("d-shift-count").textContent;
+  const warn = pending
+    ? `\n\nAtenção: ainda há ${pending} pedido(s) na lista. Se você entregar depois, contam na próxima noite.`
+    : "";
+  if (!window.confirm(`Fechar as entregas de hoje?\n\nTotal desta noite: ${count} entrega(s). O total vai para o administrador e a contagem é encerrada.${warn}`)) return;
+
+  shiftBusy = true;
+  const btn = document.getElementById("d-close-shift");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/entregador/turno/fechar", { method: "POST" });
+    if (res.status === 401) { showLogin(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) { showToast(data.error || "Não foi possível fechar as entregas"); return; }
+    await disablePush();
+    showLogin(`✅ Entregas fechadas: ${data.shift.deliveries} entrega(s) nesta noite. O total já está no painel do administrador. Para começar uma nova noite, entre de novo.`);
+  } catch (error) {
+    console.error(error);
+    showToast("Sem conexão — tente de novo");
+  } finally {
+    shiftBusy = false;
+    btn.disabled = false;
+  }
+}
+
 /* ---------- login ---------- */
 
-function showLogin() {
+function showLogin(message) {
   if (poller) { poller.stop(); poller = null; }
+  alarmIds.clear();
+  updateAlarmBanner();
+  knownReady = null;
+  const msg = document.getElementById("d-closed-msg");
+  msg.textContent = message || "";
+  msg.style.display = message ? "block" : "none";
   document.getElementById("d-login").style.display = "block";
   document.getElementById("d-board").style.display = "none";
   document.getElementById("d-logout").style.display = "none";
 }
 
-function showBoard() {
+async function showBoard() {
   document.getElementById("d-login").style.display = "none";
   document.getElementById("d-board").style.display = "block";
   document.getElementById("d-logout").style.display = "inline-block";
   knownIds = null;
+  knownReady = null;
   lastSignature = "";
+  updateSoundButton();
+  // Garante que a noite de entregas está aberta (entrar já abre; isto cobre
+  // quem continua logado de antes).
+  try { await fetch("/api/entregador/turno/iniciar", { method: "POST" }); } catch (_) { /* tenta na próxima */ }
   loadOrders();
   if (poller) poller.stop();
   poller = LiveRefresh.every(loadOrders, POLL_MS, { keepAlive: true });
   keepScreenOn();
+  setupPush(false);
 }
 
 async function login() {
@@ -235,7 +519,7 @@ async function login() {
       return;
     }
     document.getElementById("d-password").value = "";
-    beep(); // libera o áudio do navegador para o aviso de nova entrega
+    unlockAudio();   // o toque em "Entrar" já libera o som para o alarme
     showBoard();
   } catch (error) {
     errorEl.textContent = "Sem conexão com o servidor.";
@@ -246,8 +530,20 @@ async function login() {
 document.getElementById("d-login-btn").addEventListener("click", login);
 document.getElementById("d-password").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
 document.getElementById("d-logout").addEventListener("click", async () => {
+  await disablePush();
   await fetch("/api/entregador/logout", { method: "POST" }).catch(() => {});
   showLogin();
+});
+document.getElementById("d-close-shift").addEventListener("click", closeShift);
+document.getElementById("d-sound").addEventListener("click", async () => {
+  const ok = await unlockAudio();
+  if (ok) playAlarmSound();
+});
+document.getElementById("d-push").addEventListener("click", () => setupPush(true));
+document.getElementById("d-alarm-stop").addEventListener("click", () => {
+  alarmIds.clear();
+  alarmPlays = 0;
+  updateAlarmBanner();
 });
 
 // Já está logado (senha do entregador ou admin)? Entra direto.

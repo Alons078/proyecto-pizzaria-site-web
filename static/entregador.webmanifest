@@ -1,0 +1,12 @@
+{
+  "name": "Rey Pizzaria · Entregador",
+  "short_name": "Entregador",
+  "start_url": "/entregador",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    { "src": "/static/entregador-icon.png", "sizes": "500x500", "type": "image/png", "purpose": "any" }
+  ]
+}

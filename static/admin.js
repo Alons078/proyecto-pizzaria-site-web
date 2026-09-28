@@ -1802,6 +1802,73 @@ function initSectionNav() {
   wrap.insertBefore(nav, wrap.firstChild);
 }
 
+/* ---------- entregas da noite (contagem do entregador) ---------- */
+
+function formatShiftTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso || "—";
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+async function loadCourierShifts() {
+  const openEl = document.getElementById("courier-open-shift");
+  const tableEl = document.getElementById("courier-shifts-table");
+  if (!openEl || !tableEl) return;
+  try {
+    const res = await fetch("/api/admin/entregas/turnos", { cache: "no-store" });
+    if (res.status === 401) return;
+    if (!res.ok) throw new Error("Não foi possível carregar as entregas da noite.");
+    const data = await res.json();
+
+    const forceBtn = document.getElementById("courier-shift-force-close");
+    const forceHint = document.getElementById("courier-shift-force-hint");
+    if (data.open) {
+      openEl.innerHTML = `
+        <div class="sales-stat-card sales-stat-highlight"><span>Noite em andamento — entregas até agora</span><strong>${data.open.deliveries}</strong></div>
+        <div class="sales-stat-card"><span>Começou</span><strong>${escapeHTML(formatShiftTime(data.open.started_at))}</strong></div>
+        <div class="sales-stat-card"><span>Taxas de entrega</span><strong>${formatPrice(data.open.fees)}</strong></div>`;
+    } else {
+      openEl.innerHTML = `<div class="empty-items">Nenhuma noite aberta. A contagem começa quando o entregador entrar em /entregador.</div>`;
+    }
+    forceBtn.style.display = data.open ? "inline-block" : "none";
+    forceHint.style.display = data.open ? "block" : "none";
+
+    if (!data.shifts.length) {
+      tableEl.innerHTML = `<div class="empty-items">Nenhuma noite fechada ainda.</div>`;
+      return;
+    }
+    const total = data.shifts.reduce((sum, sh) => sum + sh.deliveries, 0);
+    tableEl.innerHTML = `<table class="sales-table">
+      <thead><tr><th>Início</th><th>Fechou</th><th>Entregas</th><th>Taxas</th></tr></thead>
+      <tbody>${data.shifts.map((sh) => `<tr>
+        <td>${escapeHTML(formatShiftTime(sh.started_at))}</td>
+        <td>${escapeHTML(formatShiftTime(sh.closed_at))}</td>
+        <td><strong>${sh.deliveries}</strong></td>
+        <td>${formatPrice(sh.fees)}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+    <p class="field-hint">Total das últimas ${data.shifts.length} noite(s) fechada(s): <strong>${total}</strong> entrega(s).</p>`;
+  } catch (error) {
+    console.error(error);
+    tableEl.innerHTML = `<div class="empty-items">Erro ao carregar as entregas da noite.</div>`;
+  }
+}
+
+document.getElementById("courier-shifts-refresh")?.addEventListener("click", loadCourierShifts);
+document.getElementById("courier-shift-force-close")?.addEventListener("click", async () => {
+  if (!window.confirm("Fechar a noite de entregas agora?\n\nA contagem atual é encerrada e guardada no histórico.")) return;
+  try {
+    const res = await fetch("/api/admin/entregas/turnos/fechar", { method: "POST" });
+    if (res.status === 401) return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) window.alert(data.error || "Não foi possível fechar a noite.");
+  } catch (error) {
+    console.error(error);
+    window.alert("Sem conexão. Tente de novo.");
+  }
+  loadCourierShifts();
+});
+
 setupCropper();
 initSectionNav();
 initCollapsiblePanels();
@@ -1812,7 +1879,9 @@ loadBackups();
 loadCourierStatus();
 loadSales();
 loadPedidosHistorico();
+loadCourierShifts();
 // Só a tabela de vendas se atualiza sozinha; o formulário do cardápio NÃO
 // (senão apagaria o que você está digitando).
 LiveRefresh.every(loadSales, 30000);
 LiveRefresh.every(loadPedidosHistorico, 30000);
+LiveRefresh.every(loadCourierShifts, 30000);
