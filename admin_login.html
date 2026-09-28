@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar · Painel · Rey Pizzaria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="login-wrap">
+  <form class="login-card" method="post" action="/admin/login">
+    <h1>Painel do administrador</h1>
+    <p class="login-sub">Digite a senha para continuar.</p>
+    {% if error %}
+      <p class="login-error">{{ error }}</p>
+    {% endif %}
+    <div class="field">
+      <label>Senha</label>
+      <input type="password" name="password" autofocus required>
+    </div>
+    <button type="submit" class="save-btn login-btn">Entrar</button>
+    <a class="login-back" href="/">← voltar para o site</a>
+  </form>
+</div>
+
+</body>
+</html>

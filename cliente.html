@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rei Pizzaria</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="info-bar">
+  <span id="info-delivery"></span>
+  <span id="info-min-order"></span>
+  <span id="info-address"></span>
+</div>
+
+<header class="top">
+  <div class="brand">
+    <img class="brand-logo" id="brand-logo" src="" alt="Rey Pizzaria" style="display:none;">
+    <span id="brand-name">Rei Pizzaria</span>
+  </div>
+  <div id="sign" class="sign">
+    <span class="dot"></span>
+    <span id="sign-text">carregando…</span>
+  </div>
+  <a href="/meus-pedidos" class="my-orders-link" aria-label="Meus pedidos">📦 Pedidos</a>
+  <a href="/carrinho" class="cart-link" aria-label="Ver carrinho">
+    🛒 <span id="cart-badge" class="cart-badge" style="display:none;">0</span>
+  </a>
+</header>
+
+<div class="promo-banner" id="promo-banner" style="display:none;">
+  <div class="promo-banner-inner">
+    <span class="txt" id="promo-banner-text"></span>
+    <span class="cta">Aproveite →</span>
+  </div>
+</div>
+
+<nav class="cat-nav" id="cat-nav">
+  <a href="#mais-pedidos-section">Mais pedidos</a>
+  <a href="#promos-section">Promoções</a>
+  <a href="#pizzas-section">Pizzas</a>
+  <a href="#salgados-section">Salgados</a>
+  <a href="#bebidas-section">Bebidas</a>
+</nav>
+
+<main class="hero">
+  <img class="logo-big" id="logo-big" src="" alt="Rey Pizzaria" style="display:none;">
+  <p class="eyebrow" id="post-eyebrow">post de hoje</p>
+  <h1 id="post-title">—</h1>
+  <p class="lead" id="post-text"></p>
+  <div class="image-slot" id="post-image">
+    <span>espaço para foto do dia</span>
+  </div>
+
+  <div class="wrap" style="padding:0;">
+    <div id="mais-pedidos-section" class="is-empty">
+      <h2 class="section-title reveal">🔥 Mais pedidos</h2>
+      <div class="highlight-row" id="mais-pedidos-row"></div>
+    </div>
+
+    <div id="promos-section">
+      <h2 class="section-title reveal">Promoções</h2>
+      <div class="promo-grid" id="promos-grid"></div>
+    </div>
+
+    <div id="pizzas-section">
+      <h2 class="section-title reveal">Pizzas</h2>
+      <div class="grid" id="pizzas-grid"></div>
+    </div>
+
+    <div id="salgados-section">
+      <h2 class="section-title reveal">Salgados</h2>
+      <div class="grid" id="salgados-grid"></div>
+    </div>
+
+    <div id="bebidas-section">
+      <h2 class="section-title reveal">Bebidas</h2>
+      <div class="grid" id="bebidas-grid"></div>
+    </div>
+
+    <!-- Seções extras criadas pelo admin (Sobremesas, Porções...): o client.js as desenha aqui. -->
+    <div id="custom-sections"></div>
+  </div>
+</main>
+
+<footer class="foot">
+  <span id="foot-hours">18h – 2.00h</span>
+  <span id="foot-address"></span>
+</footer>
+
+<div class="privacy-banner" id="privacy-banner" style="display:none;">
+  <div class="privacy-banner-inner">
+    <p class="privacy-banner-text">
+      Usamos alguns dos seus dados só para o pedido funcionar direito.
+      <button type="button" class="privacy-link-btn" id="privacy-read-btn">Leia aqui</button>
+    </p>
+    <div class="privacy-banner-actions">
+      <button type="button" class="privacy-btn privacy-btn-reject" id="privacy-reject-btn">Rejeitar</button>
+      <button type="button" class="privacy-btn privacy-btn-accept" id="privacy-accept-btn">Aceitar</button>
+    </div>
+  </div>
+</div>
+
+<div class="privacy-modal-overlay" id="privacy-modal-overlay" style="display:none;">
+  <div class="privacy-modal" role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
+    <button type="button" class="privacy-modal-close" id="privacy-modal-close-btn" aria-label="Fechar">×</button>
+    <h2 id="privacy-modal-title">Seus dados neste site</h2>
+
+    <h3>O que fica salvo no seu navegador</h3>
+    <p>O conteúdo do seu carrinho e os códigos dos pedidos que você faz ficam guardados só no seu próprio celular ou computador (não em um servidor da pizzaria) — assim você não perde o que escolheu ao navegar entre as páginas, e consegue acompanhar seus pedidos depois em "Meus pedidos".</p>
+
+    <h3>O que pedimos quando você fecha um pedido</h3>
+    <p>Nome, telefone, endereço de entrega (quando for o caso) e forma de pagamento. Se você escolhe entrega, o endereço também é usado para calcular a taxa de entrega pela distância.</p>
+
+    <h3>Para que servem esses dados</h3>
+    <p>Só para preparar, confirmar e entregar o seu pedido, e para a pizzaria poder falar com você pelo WhatsApp sobre ele. Não usamos esses dados para anúncios nem os vendemos a terceiros, e eles ficam guardados apenas pelo tempo necessário para atender o seu pedido.</p>
+
+    <p class="field-hint">Ao continuar navegando ou fazer um pedido, você concorda com esse uso. Você pode rejeitar abaixo, mas para concluir um pedido sempre vamos pedir os dados de contato e entrega, já que são necessários para ele chegar até você.</p>
+
+    <div class="privacy-modal-actions">
+      <button type="button" class="privacy-btn privacy-btn-reject" id="privacy-modal-reject-btn">Rejeitar</button>
+      <button type="button" class="privacy-btn privacy-btn-accept" id="privacy-modal-accept-btn">Aceitar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/cart.js"></script>
+<script src="/static/live.js"></script>
+<script src="/static/client.js"></script>
+<script src="/static/privacy.js"></script>
+<script src="/static/animations.js" defer></script>
+</body>
+</html>
