@@ -239,6 +239,18 @@
     <div id="pedidos-table-wrap"></div>
   </section>
 
+  <section class="panel">
+    <h2>Entregas da noite (entregador)</h2>
+    <p class="login-sub">A contagem começa quando o entregador entra em <strong>/entregador</strong> e termina quando ele toca em <strong>Fechar entregas</strong> — por isso cobre a noite inteira (das 18h às 2h), sem cortar à meia-noite.</p>
+    <div class="sales-stats" id="courier-open-shift"></div>
+    <div class="pedidos-stats-btns">
+      <button type="button" class="add-item-btn" id="courier-shifts-refresh">🔄 Atualizar</button>
+      <button type="button" class="delete-item-btn" id="courier-shift-force-close" style="display:none;">🔒 Fechar noite agora</button>
+    </div>
+    <p class="field-hint" id="courier-shift-force-hint" style="display:none;">Use "Fechar noite agora" só se o entregador esqueceu de fechar.</p>
+    <div id="courier-shifts-table"></div>
+  </section>
+
   <div class="save-bar">
     <button class="save-btn" id="save-btn">Salvar alterações</button>
   </div>

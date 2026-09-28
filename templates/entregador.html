@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Entregador · Rey Pizzaria</title>
+<link rel="manifest" href="/static/entregador.webmanifest">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="apple-touch-icon" href="/static/entregador-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
@@ -21,7 +24,8 @@
 
   <section class="panel" id="d-login">
     <h2>Entrar como entregador</h2>
-    <p class="login-sub">Digite a senha do entregador. Se você não tem ou ela não funciona, peça ao administrador.</p>
+    <p class="login-sub" id="d-closed-msg" style="display:none;"></p>
+    <p class="login-sub">Digite a senha do entregador. Se você não tem ou ela não funciona, peça ao administrador. Ao entrar, começa a contagem das entregas da noite.</p>
     <p class="login-error" id="d-login-error" style="display:none;"></p>
     <div class="field">
       <label>Senha do entregador</label>
@@ -35,7 +39,23 @@
       <h2 class="k-title">Entregas em rota <span id="d-count" class="k-count"></span></h2>
       <span class="live-status" id="d-live">● Conectando...</span>
     </div>
-    <p class="field-hint">A entrega mais antiga fica no topo. Quando entregar, toque em <strong>Confirmar entrega</strong> — a cozinha e o cliente veem na hora.</p>
+    <div class="d-shift">
+      <div class="d-shift-info">
+        <strong>🌙 Entregas desta noite: <span id="d-shift-count">0</span></strong>
+        <small id="d-shift-since"></small>
+      </div>
+      <button type="button" class="d-close-btn" id="d-close-shift">🔒 Fechar entregas</button>
+    </div>
+    <div class="d-tools">
+      <button type="button" class="item-toggle-all" id="d-sound">🔇 Toque para ativar o som</button>
+      <button type="button" class="item-toggle-all" id="d-push" style="display:none;">🔔 Ativar avisos com o app fechado</button>
+    </div>
+    <p class="field-hint" id="d-push-hint" style="display:none;"></p>
+    <div class="d-alarm" id="d-alarm" style="display:none;">
+      <span id="d-alarm-text">🍕 Pedido pronto!</span>
+      <button type="button" id="d-alarm-stop">Entendi</button>
+    </div>
+    <p class="field-hint">A entrega mais antiga fica no topo. Quando o pedido estiver <strong>pronto</strong> você recebe um aviso; toque em <strong>Saí para entrega</strong> ao pegar e em <strong>Confirmar entrega</strong> ao entregar — a cozinha e o cliente veem na hora.</p>
     <div id="d-list"></div>
   </section>
 
