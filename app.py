@@ -30,9 +30,21 @@ import uuid
 import hashlib
 import hmac
 import secrets
+import json
+import base64
+import threading
 
 import db
 import delivery_fee
+
+# Avisos push (o celular do entregador recebe "pedido pronto" mesmo com o
+# navegador fechado). Se a biblioteca não estiver instalada, o resto do site
+# funciona normalmente — só ficam sem push.
+try:
+    from pywebpush import webpush, WebPushException
+except Exception:  # pragma: no cover
+    webpush = None
+    WebPushException = Exception
 
 
 def _is_password_hash(value):
@@ -555,6 +567,8 @@ def kitchen_advance_order(order_id):
     if not updated:
         return jsonify({"ok": False, "error": "Esse pedido já mudou de etapa. Atualizando a lista..."}), 409
     updated["is_delivery"] = updated["delivery_type"] == db.DELIVERY_TYPE_VALUE
+    if updated["stage"] == "pronto" and updated["is_delivery"]:
+        _notify_courier_ready(updated)
     return jsonify({"ok": True, "order": updated})
 
 
@@ -580,6 +594,7 @@ def courier_login():
         return jsonify({"ok": False, "error": "Senha incorreta."}), 401
     session["courier_pw"] = _courier_fingerprint(stored)
     session.permanent = True  # o celular não deve pedir a senha de novo a cada vez que fechar o navegador
+    db.open_courier_shift(_now_store_iso())   # começa a contagem das entregas da noite
     return jsonify({"ok": True})
 
 
@@ -592,32 +607,223 @@ def courier_logout():
 @app.route("/api/entregador/pedidos", methods=["GET"])
 @require_courier
 def courier_orders():
-    """Pedidos de ENTREGA que já saíram da cozinha (etapa 'em_rota'), do mais
-    antigo para o mais novo. Retirada nunca aparece aqui."""
+    """Pedidos de ENTREGA que o entregador precisa atender: 'pronto' (esperando
+    ele pegar na cozinha) e 'em_rota' (já saíram), do mais antigo para o mais
+    novo. Retirada nunca aparece aqui. Devolve também a contagem da noite."""
     now = datetime.now()
     orders = []
     for order in db.list_kitchen_orders():
-        if order["stage"] != "em_rota" or order["delivery_type"] != db.DELIVERY_TYPE_VALUE:
+        if order["stage"] not in ("pronto", "em_rota") or order["delivery_type"] != db.DELIVERY_TYPE_VALUE:
             continue
         order["is_delivery"] = True
-        # Minutos desde que o pedido saiu da cozinha (calculado no servidor).
+        # Minutos desde que o pedido entrou nessa etapa (calculado no servidor).
         try:
-            order["route_min"] = max(0, int((now - datetime.fromisoformat(order["stage_updated_at"])).total_seconds() // 60))
+            minutes = max(0, int((now - datetime.fromisoformat(order["stage_updated_at"])).total_seconds() // 60))
         except (TypeError, ValueError):
-            order["route_min"] = None
+            minutes = None
+        order["route_min"] = minutes if order["stage"] == "em_rota" else None
+        order["ready_min"] = minutes if order["stage"] == "pronto" else None
         orders.append(order)
-    return jsonify({"ok": True, "orders": orders})
+    return jsonify({"ok": True, "orders": orders, "shift": db.get_open_courier_shift()})
+
+
+@app.route("/api/entregador/pedidos/<int:order_id>/sair", methods=["POST"])
+@require_courier
+def courier_pickup(order_id):
+    """O entregador pegou o pedido pronto na cozinha e saiu para entregar
+    ('pronto' -> 'em_rota'). O cliente vê "em rota" sozinho."""
+    if not db.courier_pickup_order(order_id):
+        return jsonify({"ok": False, "error": "Esse pedido já saiu ou não está mais pronto."}), 409
+    return jsonify({"ok": True})
 
 
 @app.route("/api/entregador/pedidos/<int:order_id>/entregar", methods=["POST"])
 @require_courier
 def courier_deliver_order(order_id):
     """O entregador confirma a entrega: o pedido passa de 'em_rota' para
-    'entregue'. A cozinha e o cliente veem a mudança sozinhos (as telas se
-    atualizam a cada poucos segundos)."""
+    'entregue' (e entra na contagem da noite). A cozinha e o cliente veem a
+    mudança sozinhos (as telas se atualizam a cada poucos segundos)."""
     updated = db.advance_order_stage(order_id, "em_rota")
     if not updated:
         return jsonify({"ok": False, "error": "Esse pedido já foi confirmado ou não está mais em rota."}), 409
+    return jsonify({"ok": True})
+
+
+# ---------- noite de entregas (contagem do entregador -> admin) ----------
+
+def _now_store_iso():
+    """Data/hora de agora no horário da loja (Brasil), sem fuso no texto."""
+    return datetime.now(FUSO_LOJA).replace(tzinfo=None).isoformat(timespec="seconds")
+
+
+def _courier_session_valid():
+    stored = db.get_courier_password()
+    return bool(stored) and session.get("courier_pw") == _courier_fingerprint(stored)
+
+
+@app.route("/api/entregador/turno/iniciar", methods=["POST"])
+@require_courier
+def courier_shift_start():
+    """Garante que existe uma noite aberta. Só a sessão do ENTREGADOR abre
+    (o admin só espiando a tela do entregador não começa contagem nenhuma)."""
+    if _courier_session_valid():
+        return jsonify({"ok": True, "shift": db.open_courier_shift(_now_store_iso())})
+    return jsonify({"ok": True, "shift": db.get_open_courier_shift()})
+
+
+@app.route("/api/entregador/turno/fechar", methods=["POST"])
+@require_courier
+def courier_shift_close():
+    """O entregador toca em "Fechar entregas": a noite é fechada e o total vai
+    para o admin. A sessão do entregador é encerrada (na próxima noite, ao
+    entrar de novo, começa uma contagem nova)."""
+    closed = db.close_courier_shift(_now_store_iso())
+    if not closed:
+        return jsonify({"ok": False, "error": "Não há entregas abertas para fechar."}), 409
+    session.pop("courier_pw", None)
+    return jsonify({"ok": True, "shift": closed})
+
+
+@app.route("/api/admin/entregas/turnos", methods=["GET"])
+@require_admin
+def admin_courier_shifts():
+    return jsonify({
+        "ok": True,
+        "open": db.get_open_courier_shift(),
+        "shifts": db.list_closed_courier_shifts(30),
+    })
+
+
+@app.route("/api/admin/entregas/turnos/fechar", methods=["POST"])
+@require_admin
+def admin_close_courier_shift():
+    """Fecha à força a noite aberta (ex.: o entregador esqueceu de fechar)."""
+    closed = db.close_courier_shift(_now_store_iso())
+    if not closed:
+        return jsonify({"ok": False, "error": "Não há noite aberta."}), 409
+    return jsonify({"ok": True, "shift": closed})
+
+
+# ---------- avisos push para o entregador ----------
+
+def _vapid_keys():
+    """Par de chaves do push: gerado uma vez e guardado no banco (assim não
+    precisa configurar nada no Render). Devolve (privada, pública) em base64url."""
+    raw = db.get_meta("vapid_keys")
+    if not raw:
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        key = ec.generate_private_key(ec.SECP256R1())
+        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+        priv = b64(key.private_numbers().private_value.to_bytes(32, "big"))
+        pub = b64(key.public_key().public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint))
+        raw = db.set_meta_if_absent("vapid_keys", json.dumps({"private": priv, "public": pub}))
+    keys = json.loads(raw)
+    return keys["private"], keys["public"]
+
+
+def _vapid_subject():
+    explicit = os.environ.get("VAPID_SUBJECT")
+    if explicit:
+        return explicit
+    host = os.environ.get("RENDER_EXTERNAL_HOSTNAME") or "reypizzaria.onrender.com"
+    return f"mailto:admin@{host}"
+
+
+def _notify_courier_ready(order):
+    """Manda o aviso "pedido pronto" para o celular do entregador. Roda numa
+    thread à parte para o clique da cozinha não esperar o serviço de push, e
+    só envia se o entregador tem uma noite aberta (ou seja, está trabalhando)."""
+    if webpush is None:
+        return
+    try:
+        if not db.get_open_courier_shift():
+            return
+        subs = db.list_push_subs()
+        if not subs:
+            return
+        private_key, _ = _vapid_keys()
+    except Exception as error:
+        print("push: não foi possível preparar o aviso:", error)
+        return
+
+    name = (order.get("customer_name") or "").strip()
+    address = (order.get("address") or "").strip()
+    payload = json.dumps({
+        "title": f"🍕 Pedido #{order['id']} PRONTO!",
+        "body": " · ".join(part for part in (name, address) if part) or "Pode retirar na cozinha.",
+        "order_id": order["id"],
+    }, ensure_ascii=False)
+    subject = _vapid_subject()
+
+    def send_all():
+        for sub_json in subs:
+            try:
+                sub = json.loads(sub_json)
+                webpush(
+                    subscription_info=sub,
+                    data=payload,
+                    vapid_private_key=private_key,
+                    vapid_claims={"sub": subject},
+                    ttl=900,
+                    headers={"Urgency": "high"},
+                    timeout=10,
+                )
+            except WebPushException as error:
+                status = getattr(getattr(error, "response", None), "status_code", None)
+                if status in (404, 410):   # aparelho não recebe mais: esquece
+                    db.remove_push_sub(sub.get("endpoint", ""))
+                else:
+                    print("push: falha ao enviar:", error)
+            except Exception as error:
+                print("push: falha ao enviar:", error)
+
+    threading.Thread(target=send_all, daemon=True).start()
+
+
+@app.route("/entregador-sw.js")
+def courier_service_worker():
+    """O service worker precisa ser servido da raiz do site para poder
+    receber os avisos mesmo com a página fechada."""
+    from flask import send_from_directory
+    response = send_from_directory(os.path.join(BASE_PATH, "static"), "entregador-sw.js", mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+
+@app.route("/api/entregador/push/key", methods=["GET"])
+@require_courier
+def courier_push_key():
+    if webpush is None:
+        return jsonify({"ok": True, "enabled": False})
+    try:
+        return jsonify({"ok": True, "enabled": True, "key": _vapid_keys()[1]})
+    except Exception as error:
+        print("push: erro nas chaves:", error)
+        return jsonify({"ok": True, "enabled": False})
+
+
+@app.route("/api/entregador/push/subscribe", methods=["POST"])
+@require_courier
+def courier_push_subscribe():
+    sub = request.get_json(silent=True) or {}
+    endpoint = str(sub.get("endpoint") or "")
+    keys = sub.get("keys") or {}
+    if not endpoint.startswith("https://") or len(endpoint) > 1000 or not keys.get("p256dh") or not keys.get("auth"):
+        return jsonify({"ok": False, "error": "Inscrição inválida."}), 400
+    clean = {"endpoint": endpoint, "keys": {"p256dh": str(keys["p256dh"]), "auth": str(keys["auth"])}}
+    db.save_push_sub(endpoint, json.dumps(clean))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/entregador/push/unsubscribe", methods=["POST"])
+@require_courier
+def courier_push_unsubscribe():
+    endpoint = str((request.get_json(silent=True) or {}).get("endpoint") or "")
+    if endpoint:
+        db.remove_push_sub(endpoint)
     return jsonify({"ok": True})
 
 

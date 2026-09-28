@@ -142,6 +142,26 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL
 );
 
+-- Noite de entregas do entregador: abre quando ele entra (login) e fecha
+-- quando ele toca em "Fechar entregas". O contador é incrementado na hora
+-- em que uma entrega é confirmada (1 UPDATE), então não depende do horário
+-- (a pizzaria vai das 18h às 2h) nem de o admin apagar o histórico depois.
+CREATE TABLE IF NOT EXISTS courier_shifts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    closed_at TEXT,
+    deliveries INTEGER NOT NULL DEFAULT 0,
+    fees REAL NOT NULL DEFAULT 0
+);
+
+-- Aparelhos do entregador que ativaram os avisos (push) para receber
+-- "pedido pronto" mesmo com o navegador fechado.
+CREATE TABLE IF NOT EXISTS push_subs (
+    endpoint TEXT PRIMARY KEY,
+    sub_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 """
 
 
@@ -957,6 +977,32 @@ def advance_order_stage(order_id, expected_stage):
                 "UPDATE orders SET stage = ?, stage_updated_at = ? WHERE id = ? AND stage = ?",
                 (target, datetime_now_iso(), order_id, expected_stage),
             )
+        if cursor.rowcount and target == "entregue" and row["delivery_type"] == DELIVERY_TYPE_VALUE:
+            # Conta na noite de entregas aberta (se o entregador ainda não
+            # entrou, não há noite aberta e nada é contado).
+            conn.execute(
+                "UPDATE courier_shifts SET deliveries = deliveries + 1, fees = fees + ? WHERE closed_at IS NULL",
+                (float(row["delivery_fee"] or 0),),
+            )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        return _order_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def courier_pickup_order(order_id):
+    """O entregador pegou o pedido pronto na cozinha: 'pronto' -> 'em_rota'.
+    Só vale para pedidos de ENTREGA (retirada nunca passa por aqui) e é um
+    único UPDATE condicionado à etapa, então dois toques não avançam duas vezes."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE orders SET stage = 'em_rota', stage_updated_at = ? WHERE id = ? AND stage = 'pronto' AND delivery_type = ?",
+            (datetime_now_iso(), order_id, DELIVERY_TYPE_VALUE),
+        )
         conn.commit()
         if cursor.rowcount == 0:
             return None
@@ -1035,5 +1081,143 @@ def set_courier_password(password_hash):
             (password_hash,),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+# ---------- noite de entregas do entregador ----------
+
+def _shift_row(r):
+    if not r:
+        return None
+    return {
+        "id": r["id"],
+        "started_at": r["started_at"],
+        "closed_at": r["closed_at"],
+        "deliveries": r["deliveries"],
+        "fees": r["fees"],
+    }
+
+
+def open_courier_shift(now_iso):
+    """Abre a noite de entregas (se já houver uma aberta, devolve a mesma —
+    entrar duas vezes ou de dois celulares não zera nem duplica a contagem)."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM courier_shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            cursor = conn.execute("INSERT INTO courier_shifts (started_at) VALUES (?)", (now_iso,))
+            row = conn.execute("SELECT * FROM courier_shifts WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        conn.commit()
+        return _shift_row(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_open_courier_shift():
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM courier_shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return _shift_row(row)
+    finally:
+        conn.close()
+
+
+def close_courier_shift(now_iso):
+    """Fecha a noite aberta e devolve o resumo (ou None se não havia)."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM courier_shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        conn.execute("UPDATE courier_shifts SET closed_at = ? WHERE id = ?", (now_iso, row["id"]))
+        row = conn.execute("SELECT * FROM courier_shifts WHERE id = ?", (row["id"],)).fetchone()
+        conn.commit()
+        return _shift_row(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def list_closed_courier_shifts(limit=30):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM courier_shifts WHERE closed_at IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [_shift_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------- avisos push do entregador ----------
+
+PUSH_SUBS_MAX = 5   # no máximo 5 aparelhos guardados (os mais novos)
+
+
+def get_meta(key):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+    finally:
+        conn.close()
+
+
+def set_meta_if_absent(key, value):
+    """Grava só se ainda não existir e devolve o valor que ficou (evita duas
+    requisições simultâneas gerarem chaves diferentes)."""
+    conn = get_connection()
+    try:
+        conn.execute("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+        return conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()["value"]
+    finally:
+        conn.close()
+
+
+def save_push_sub(endpoint, sub_json):
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO push_subs (endpoint, sub_json, created_at) VALUES (?, ?, ?)",
+            (endpoint, sub_json, datetime_now_iso()),
+        )
+        conn.execute(
+            "DELETE FROM push_subs WHERE endpoint NOT IN (SELECT endpoint FROM push_subs ORDER BY created_at DESC LIMIT ?)",
+            (PUSH_SUBS_MAX,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_push_sub(endpoint):
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM push_subs WHERE endpoint = ?", (endpoint,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_push_subs():
+    conn = get_connection()
+    try:
+        return [r["sub_json"] for r in conn.execute("SELECT sub_json FROM push_subs").fetchall()]
     finally:
         conn.close()
