@@ -17,6 +17,19 @@ const CATEGORY_LABELS = {
   bebida: "Bebidas",
 };
 
+// Seções extras criadas pelo admin (ex.: "sec-1" -> "Sobremesas"): entram em
+// CATEGORY_LABELS para o resumo de vendas e o estoque mostrarem o nome certo.
+async function loadSectionLabels() {
+  try {
+    const res = await fetch("/api/data", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    (data.sections || []).forEach((section) => { CATEGORY_LABELS[section.category] = section.name; });
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 async function loadResumo() {
   try {
     const res = await fetch(`/api/admin/vendas/resumo?period=${currentPeriod}`);
@@ -189,9 +202,10 @@ function showLoginGate() {
   document.getElementById("admin-login-password").focus();
 }
 
-function showApp() {
+async function showApp() {
   document.getElementById("admin-login-gate").style.display = "none";
   document.getElementById("admin-app").style.display = "";
+  await loadSectionLabels();   // nomes das seções novas, antes de desenhar as listas
   loadResumo();
   loadEstoque();
 }

@@ -1,4 +1,5 @@
 let posItems = [];
+let posSections = []; // seções extras criadas pelo admin ({category, name})
 let cart = {}; // item_id -> qty
 
 function escapeHTML(value) {
@@ -37,7 +38,7 @@ async function checkSession() {
     const res = await fetch("/api/employee/session");
     const data = await res.json();
     if (data.ok) {
-      showPosPanel(data.shift, data.items);
+      showPosPanel(data.shift, data.items, data.sections);
     } else {
       showLoginPanel();
     }
@@ -52,23 +53,25 @@ function showLoginPanel() {
   document.getElementById("pos-panel").style.display = "none";
 }
 
-function showPosPanel(shift, items) {
+function showPosPanel(shift, items, sections) {
   document.getElementById("pos-login").style.display = "none";
   document.getElementById("pos-panel").style.display = "block";
   document.getElementById("pos-shift-name").textContent = shift.name || "Turno";
   posItems = items || [];
+  posSections = Array.isArray(sections) ? sections : [];
   cart = {};
   renderPosGrid();
   updateCartTotal();
 }
 
 function categoryLabel(category) {
-  return { pizza: "Pizzas", salgado: "Salgados", bebida: "Bebidas" }[category] || category;
+  const custom = posSections.find((s) => s.category === category);
+  return { pizza: "Pizzas", salgado: "Salgados", bebida: "Bebidas" }[category] || (custom ? custom.name : category);
 }
 
 function renderPosGrid() {
   const grid = document.getElementById("pos-grid");
-  const categories = ["pizza", "salgado", "bebida"];
+  const categories = ["pizza", "salgado", "bebida", ...posSections.map((s) => s.category)];
   grid.innerHTML = categories.map((category) => {
     const items = posItems.filter((item) => item.category === category);
     if (!items.length) return "";

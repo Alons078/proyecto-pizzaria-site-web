@@ -2717,3 +2717,138 @@ main.wrap > .panel { scroll-margin-top: 64px; }
 .card-compact .card-cta { display: none; }
 .card-compact .price { font-size: 13.5px; }
 .card-compact .sold-out-badge { top: 5px; left: 5px; font-size: 10px; padding: 3px 8px; }
+
+/* ---------- promoção: borda por pizza ---------- */
+.promo-borda-block { margin-top: 10px; }
+.promo-slot-block .promo-borda-label {
+  margin-bottom: 4px;
+  color: var(--ember-dark);
+}
+.promo-slot-block .promo-borda-select { padding: 10px 14px; }
+
+/* ---------- cliente: tamanhos na promoção ---------- */
+.promo-card .promo-sizes {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ember-dark);
+  margin-bottom: 4px;
+}
+
+/* ---------- admin: escolhas de promoção com tamanho ---------- */
+.promo-slot { grid-template-columns: 1fr 170px 190px auto; }
+.promo-slot select:disabled { opacity: 0.55; cursor: not-allowed; }
+@media (max-width: 700px) {
+  .promo-slot { grid-template-columns: 1fr; }
+}
+
+/* ---------- admin: janela "Nova promoção" ---------- */
+.admin-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(10, 8, 6, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.admin-modal {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--paper-warm);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  padding: 24px 22px;
+}
+.admin-modal h2 { margin: 0 0 16px; font-size: 20px; }
+.admin-modal .field { margin-bottom: 14px; }
+.admin-modal .field label { display: block; margin-bottom: 6px; }
+.admin-modal .field input,
+.admin-modal .field select { width: 100%; box-sizing: border-box; }
+.admin-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.np-pizza-line { display: flex; gap: 8px; align-items: center; }
+.np-remove-pizza {
+  border: 1px solid rgba(255, 90, 95, .35);
+  background: transparent;
+  color: var(--tomato);
+  border-radius: 999px;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  flex: none;
+}
+.np-add-pizza {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px dashed var(--ember);
+  background: transparent;
+  color: var(--ember-dark);
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  margin-bottom: 14px;
+}
+.admin-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.admin-modal-actions button {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+}
+.admin-modal-actions .np-create { background: var(--ember); border-color: var(--ember); color: var(--paper); }
+
+/* ---------- admin: gerenciar seções novas ---------- */
+.section-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  margin-bottom: 8px;
+}
+.section-manage-name strong { display: block; }
+.section-manage-name small { color: var(--ink-soft); font-family: var(--font-mono); font-size: 12px; }
+.section-manage-actions { display: flex; gap: 8px; }
+.rename-section-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.field select {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--paper-warm);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+}

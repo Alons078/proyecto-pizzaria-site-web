@@ -11,6 +11,7 @@ function escapeHTML(value) {
 }
 
 let storeInfo = { whatsapp_number: "" };
+let cartPriceNotice = "";   // aviso "preços atualizados" mostrado no topo da lista
 
 async function loadStoreInfo() {
   try {
@@ -28,12 +29,14 @@ function renderCart() {
   const footerEl = document.getElementById("cart-footer");
 
   if (!cart.length) {
-    linesEl.innerHTML = `<p class="cart-empty">Seu carrinho está vazio.<br>Volte ao cardápio para escolher algo gostoso.</p>`;
+    const emptyNotice = cartPriceNotice ? `<p class="product-warning">${escapeHTML(cartPriceNotice)}</p>` : "";
+    linesEl.innerHTML = emptyNotice + `<p class="cart-empty">Seu carrinho está vazio.<br>Volte ao cardápio para escolher algo gostoso.</p>`;
     footerEl.innerHTML = "";
     return;
   }
 
-  linesEl.innerHTML = cart.map((line) => `
+  const noticeHTML = cartPriceNotice ? `<p class="product-warning">${escapeHTML(cartPriceNotice)}</p>` : "";
+  linesEl.innerHTML = noticeHTML + cart.map((line) => `
     <div class="cart-line" data-key="${escapeHTML(line.key)}">
       <div>
         <div class="cart-line-name">${escapeHTML(line.name)}</div>
@@ -111,7 +114,7 @@ function renderCart() {
       <select id="checkout-payment">
         <option value="Dinheiro">Dinheiro</option>
         <option value="Cartão na entrega">Cartão na entrega</option>
-        <option value="Pix na maquininha ">Pix na maquina /option>
+        <option value="Pix na maquininha">Pix na maquininha</option>
       </select> 
     </div>
     <div class="checkout-field pix-section" id="pix-section" style="display:none;"></div>
@@ -403,7 +406,15 @@ function sendToWhatsApp(cart, subtotal, feeCtl) {
   cartGoToTracking(orderPromise);
 }
 
-loadStoreInfo().then(renderCart);
+loadStoreInfo()
+  .then(() => cartSyncPrices())
+  .then(({ changed, removed }) => {
+    const parts = [];
+    if (changed.length) parts.push("Atualizamos o preço de: " + changed.join(", ") + ".");
+    if (removed.length) parts.push("Removemos do carrinho (não estão mais no cardápio): " + removed.join(", ") + ".");
+    cartPriceNotice = parts.join(" ");
+  })
+  .then(renderCart);
 
 /* WhatsApp, Pix e horário podem mudar no admin: se mudarem, atualiza. */
 LiveRefresh.watchPage({ pick: (d) => d.store });

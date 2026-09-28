@@ -11,8 +11,11 @@ function escapeHTML(value) {
     .replace(/'/g, "&#039;");
 }
 
+// Nomes das seções criadas pelo admin (ex.: "sec-1" -> "Sobremesas"); vem da API.
+let sectionNames = {};
+
 function categoryLabel(category) {
-  return { pizza: "Pizza", salgado: "Salgado", bebida: "Bebida" }[category] || category;
+  return { pizza: "Pizza", salgado: "Salgado", bebida: "Bebida" }[category] || sectionNames[category] || category;
 }
 
 let currentPromo = null;
@@ -22,7 +25,8 @@ let storeInfo = { whatsapp_number: "" };
 let buyNowFee = null; // controlador da taxa de entrega (ver cart.js)
 let updateBuyNowTroco = () => {}; // atualiza o resultado do troco (definida a cada render)
 let storeBordas = [];
-let selectedBordaId = null;
+// Borda escolhida em CADA pizza da promoção: { [slotIndex]: bordaId | null }
+let promoSlotBorda = {};
 
 /* Estado por slot: "one" (1 sabor, seleção simples) ou "split" (meia a meia,
  * máximo 2 sabores — mesmo limite do broto/média). Só se aplica a slots de
@@ -44,7 +48,9 @@ async function loadPromotion() {
     currentItems = data.items;
     storeInfo = data.store || {};
     storeBordas = Array.isArray(data.store && data.store.bordas) ? data.store.bordas : [];
-    selectedBordaId = null;
+    sectionNames = {};
+    (Array.isArray(data.sections) ? data.sections : []).forEach((s) => { sectionNames[s.category] = s.name; });
+    promoSlotBorda = {};
     promoSlotMode = {};
     promoSlotSingle = {};
     promoSlotSplit = {};
@@ -55,13 +61,33 @@ async function loadPromotion() {
   }
 }
 
-function promoIncludesPizza(promo) {
-  return (promo.slots || []).some((s) => s.category === "pizza");
+/* Borda escolhida em uma pizza (slot) da promoção, ou null se "sem borda". */
+function slotBorda(index) {
+  const id = promoSlotBorda[index];
+  if (id == null || id === "") return null;
+  return storeBordas.find((b) => String(b.id) === String(id)) || null;
 }
 
-function currentBorda() {
-  if (selectedBordaId == null) return null;
-  return storeBordas.find((b) => String(b.id) === String(selectedBordaId)) || null;
+/* Rótulo de um slot na tela: "Pizza 1 — Grande" (o tamanho só aparece se o
+ * admin definiu um tamanho para essa pizza). */
+function slotTitle(slot, index) {
+  const base = slot.label || `Escolha ${index + 1}`;
+  return slot.size_name ? `${base} — ${slot.size_name}` : base;
+}
+
+/* Seletor de borda DESTA pizza (só para slots de pizza, e só se a pizzaria
+ * cadastrou alguma borda). */
+function slotBordaHTML(slot, index) {
+  if (slot.category !== "pizza" || !storeBordas.length) return "";
+  const current = promoSlotBorda[index];
+  return `
+    <div class="promo-borda-block">
+      <label class="promo-borda-label">Borda desta pizza</label>
+      <select class="promo-borda-select" data-slot-index="${index}">
+        <option value="">Sem borda</option>
+        ${storeBordas.map((borda) => `<option value="${escapeHTML(borda.id)}"${String(current ?? "") === String(borda.id) ? " selected" : ""}>Borda de ${escapeHTML(borda.name)} (+${cartFormatPrice(borda.price)})</option>`).join("")}
+      </select>
+    </div>`;
 }
 
 function slotOptions(slot) {
@@ -82,7 +108,7 @@ function slotBodyHTML(slot, index) {
     </select>
   `;
 
-  if (!canSplit) return singleSelectHTML();
+  if (!canSplit) return singleSelectHTML() + slotBordaHTML(slot, index);
 
   if (!Array.isArray(promoSlotSplit[index]) || promoSlotSplit[index].length !== 2) {
     promoSlotSplit[index] = [options[0].id, (options[1] || options[0]).id];
@@ -108,6 +134,7 @@ function slotBodyHTML(slot, index) {
         </div>
       </div>
     ` : singleSelectHTML()}
+    ${slotBordaHTML(slot, index)}
   `;
 }
 
@@ -139,32 +166,10 @@ function renderPromotion(promo, items) {
   const container = document.getElementById("promo-content");
   const slots = (promo.slots || []).map((slot, index) => `
     <div class="promo-slot-block" id="promo-slot-${index}">
-      <label>${escapeHTML(slot.label || `Escolha ${index + 1}`)}</label>
+      <label>${escapeHTML(slotTitle(slot, index))}</label>
       <div class="promo-slot-body">${slotBodyHTML(slot, index)}</div>
     </div>
   `).join("");
-
-  let bordaHTML = "";
-  if (promoIncludesPizza(promo) && storeBordas.length) {
-    bordaHTML = `
-    <div class="flavor-block">
-      <label>Borda recheada</label>
-      <div class="flavor-options" id="borda-options">
-        <label class="flavor-option">
-          <input type="radio" name="borda" value="" ${selectedBordaId == null ? "checked" : ""}>
-          <span class="flavor-name">Sem borda</span>
-        </label>
-        ${storeBordas.map((borda) => `
-          <label class="flavor-option">
-            <input type="radio" name="borda" value="${escapeHTML(borda.id)}" ${String(selectedBordaId) === String(borda.id) ? "checked" : ""}>
-            <span class="flavor-name">Borda de ${escapeHTML(borda.name)}</span>
-            <span class="flavor-extra">+${cartFormatPrice(borda.price)}</span>
-          </label>
-        `).join("")}
-      </div>
-    </div>
-  `;
-  }
 
   container.innerHTML = `
     <div class="product-image">
@@ -174,7 +179,6 @@ function renderPromotion(promo, items) {
     ${promo.description ? `<p class="product-description">${escapeHTML(promo.description)}</p>` : ""}
 
     <div class="promo-choices">${slots}</div>
-    ${bordaHTML}
 
     <div class="qty-control">
       <button type="button" id="qty-minus" aria-label="Diminuir quantidade">−</button>
@@ -252,6 +256,9 @@ function renderPromotion(promo, items) {
     if (target.matches(".promo-select[data-slot-index]")) {
       promoSlotSingle[Number(target.dataset.slotIndex)] = target.value;
       updatePromoState();
+    } else if (target.matches(".promo-borda-select")) {
+      promoSlotBorda[Number(target.dataset.slotIndex)] = target.value ? target.value : null;
+      updatePromoState();
     } else if (target.matches(".promo-split-select")) {
       const idx = Number(target.dataset.slotIndex);
       const part = Number(target.dataset.partIndex);
@@ -259,12 +266,6 @@ function renderPromotion(promo, items) {
       promoSlotSplit[idx][part] = target.value;
       updatePromoState();
     }
-  });
-  container.querySelectorAll('input[name="borda"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      selectedBordaId = input.value ? input.value : null;
-      updatePromoState();
-    });
   });
   document.getElementById("qty-minus").addEventListener("click", () => updateQty(-1));
   document.getElementById("qty-plus").addEventListener("click", () => updateQty(1));
@@ -346,8 +347,11 @@ function currentUnitPrice() {
       total += Number(item?.promo_extra || 0);
     });
   });
-  const borda = currentBorda();
-  if (borda) total += Number(borda.price || 0);
+  // Cada pizza pode ter a sua própria borda: soma a de todas.
+  (currentPromo.slots || []).forEach((slot, index) => {
+    const borda = slotBorda(index);
+    if (borda) total += Number(borda.price || 0);
+  });
   return total;
 }
 
@@ -355,8 +359,9 @@ function allSlotsChosen() {
   return (currentPromo.slots || []).every((slot, index) => getSlotSelection(index) !== null);
 }
 
-/* Nomes escolhidos em cada slot, prontos para exibir (ex.: "Meia
- * Calabresa / Meia Frango" quando o slot está no modo meia a meia). */
+/* Uma linha por escolha da promoção, pronta para o carrinho e o pedido, ex.:
+ * "Pizza 1 (Grande): Calabresa + Borda de Cheddar" ou, no meia a meia,
+ * "Pizza 2 (Broto): Meia Calabresa / Meia Frango". */
 function chosenSlotNames() {
   return (currentPromo.slots || []).map((slot, index) => {
     const sel = getSlotSelection(index);
@@ -365,12 +370,21 @@ function chosenSlotNames() {
       const item = currentItems.find((i) => String(i.id) === String(id));
       return item ? item.name : "";
     }).filter(Boolean);
+    let chosen = names[0] || "";
     if (sel.mode === "split" && names.length === 2) {
-      if (names[0] === names[1]) return names[0];
-      return `Meia ${names[0]} / Meia ${names[1]}`;
+      chosen = names[0] === names[1] ? names[0] : `Meia ${names[0]} / Meia ${names[1]}`;
     }
-    return names[0] || "";
+    if (!chosen) return "";
+    const borda = slotBorda(index);
+    if (borda) chosen += ` + Borda de ${borda.name}`;
+    const base = slot.label || `Escolha ${index + 1}`;
+    return `${base}${slot.size_name ? ` (${slot.size_name})` : ""}: ${chosen}`;
   }).filter(Boolean);
+}
+
+/* Texto entre parênteses do nome da linha no carrinho/pedido. */
+function promoChoicesText() {
+  return chosenSlotNames().join(" | ");
 }
 
 function updatePromoState() {
@@ -401,26 +415,41 @@ function updateQty(delta) {
   updatePromoState();
 }
 
+/* Escolha detalhada da promoção (sabores e borda de cada pizza). Vai junto
+ * com o pedido para o SERVIDOR recalcular o preço pelo cardápio dele: o
+ * unit_price que o navegador manda é só informativo, nunca é confiável. */
+function promoSelection() {
+  return {
+    slots: (currentPromo.slots || []).map((slot, index) => {
+      const sel = getSlotSelection(index);
+      const bordaId = promoSlotBorda[index];
+      return {
+        ids: sel ? sel.ids.map(Number) : [],
+        borda_id: bordaId == null || bordaId === "" ? null : bordaId,
+      };
+    }),
+  };
+}
+
 function buildCartEntry() {
-  const chosenNames = chosenSlotNames();
-
-  const borda = currentBorda();
-  if (borda) chosenNames.push(`Borda de ${borda.name}`);
-
   const unitPrice = currentUnitPrice();
-  let choiceKey = (currentPromo.slots || []).map((slot, index) => {
+  // A chave inclui o sabor E a borda de cada pizza: duas escolhas diferentes
+  // nunca se juntam na mesma linha do carrinho.
+  const choiceKey = (currentPromo.slots || []).map((slot, index) => {
     const sel = getSlotSelection(index);
-    return sel ? sel.ids.join("-") : "x";
+    const bordaId = promoSlotBorda[index];
+    const bordaPart = bordaId != null && bordaId !== "" ? `b${bordaId}` : "";
+    return (sel ? sel.ids.join("-") : "x") + bordaPart;
   }).join("_");
-  if (selectedBordaId != null) choiceKey += `-borda-${selectedBordaId}`;
 
   return {
     key: `promo-${currentPromo.id}-${choiceKey}`,
     type: "promotion",
     id: currentPromo.id,
-    name: `${currentPromo.name} (${chosenNames.join(", ")})`,
+    name: `${currentPromo.name} (${promoChoicesText()})`,
     qty: currentQty,
     unit_price: unitPrice,
+    sel: promoSelection(),
     // Quantas pizzas tem em uma unidade desta promoção (ex.: promoção de
     // "2 pizzas" = 2). Só usado pro resumo de vendas do admin.
     pizza_count: (currentPromo.slots || []).filter((s) => s.category === "pizza").length,
@@ -493,16 +522,15 @@ function buyNowConfirm(event) {
   }
   const deliveryFee = buyNowFee ? buyNowFee.feeAmount() : 0;
 
-  const chosenNames = chosenSlotNames();
-
-  const borda = currentBorda();
-  if (borda) chosenNames.push(`Borda de ${borda.name}`);
-
   const unitPrice = currentUnitPrice();
   const line = {
-    name: `${currentPromo.name} (${chosenNames.join(", ")})`,
+    type: "promotion",
+    id: currentPromo.id,
+    name: `${currentPromo.name} (${promoChoicesText()})`,
     qty: currentQty,
     unit_price: unitPrice,
+    sel: promoSelection(),
+    pizza_count: (currentPromo.slots || []).filter((s) => s.category === "pizza").length,
   };
   const total = unitPrice * currentQty + deliveryFee;   // total COM a taxa de entrega
 
@@ -547,5 +575,5 @@ loadPromotion();
  * cliente está aqui: recarrega sozinha (se ele ainda não mexeu em nada) ou
  * mostra a faixa "Atualizar agora" (se já estava preenchendo o pedido). */
 LiveRefresh.watchPage({
-  pick: (d) => ({ store: d.store, items: d.items, promotions: d.promotions, pizza_sizes: d.pizza_sizes }),
+  pick: (d) => ({ store: d.store, items: d.items, promotions: d.promotions, pizza_sizes: d.pizza_sizes, sections: d.sections }),
 });

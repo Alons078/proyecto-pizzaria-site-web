@@ -52,8 +52,11 @@ function initCollapsiblePanels() {
   }
 
   document.querySelectorAll("main.wrap > .panel").forEach((panel, index) => {
+    // Pode ser chamada de novo (painéis das seções novas entram depois): pula os já preparados.
+    if (panel.dataset.collapsibleReady) return;
     const headerRow = panel.querySelector(":scope > h2, :scope > .panel-heading-row");
     if (!headerRow) return;
+    panel.dataset.collapsibleReady = "1";
 
     const isRow = headerRow.classList.contains("panel-heading-row");
     const heading = isRow ? headerRow.querySelector("h2") : headerRow;
@@ -125,6 +128,7 @@ async function loadData() {
     currentData.promotions = Array.isArray(currentData.promotions) ? currentData.promotions : [];
     currentData.shifts = Array.isArray(currentData.shifts) ? currentData.shifts : [];
     currentData.pizza_sizes = Array.isArray(currentData.pizza_sizes) ? currentData.pizza_sizes : [];
+    currentData.sections = Array.isArray(currentData.sections) ? currentData.sections : [];
     currentData.store.bordas = Array.isArray(currentData.store.bordas) ? currentData.store.bordas : [];
     fillForm(currentData);
   } catch (error) {
@@ -166,6 +170,7 @@ function fillForm(data) {
   fillItemList("pizzas-list", items.filter((i) => i.category === "pizza"));
   fillItemList("salgados-list", items.filter((i) => i.category === "salgado"));
   fillItemList("bebidas-list", items.filter((i) => i.category === "bebida"));
+  renderCustomSections();
 }
 
 function setImagePreview(elementId, url) {
@@ -665,6 +670,84 @@ function syncItemsFromDOM() {
   });
 }
 
+/* Antes de redesenhar a tela (adicionar/excluir turno, tamanho, borda ou
+ * promoção), guarda em currentData tudo o que a pessoa já digitou e ainda não
+ * salvou. Sem isso, fillForm() redesenhava tudo a partir dos dados antigos e
+ * os campos editados voltavam ao valor de antes, em silêncio.
+ * É uma leitura "tolerante": não valida nada (a validação continua só no
+ * collectForm(), que é o que roda ao clicar em Salvar). */
+const pendingShiftPasswords = {};
+
+function syncAllFromDOM() {
+  if (!currentData) return;
+  syncItemsFromDOM();
+
+  const readValue = (root, selector) => {
+    const el = root.querySelector(selector);
+    return el ? el.value : "";
+  };
+
+  // Promoções
+  const promoCards = [...document.querySelectorAll(".promo-admin-card")];
+  if (promoCards.length) {
+    currentData.promotions = promoCards.map((card) => {
+      const existing = currentData.promotions.find((p) => String(p.id) === String(card.dataset.promoId)) || { id: Number(card.dataset.promoId) };
+      const slots = [...card.querySelectorAll(".promo-slot")].map((slot, index) => {
+        const category = readValue(slot, ".slot-category");
+        const out = { label: readValue(slot, ".slot-label").trim() || `Escolha ${index + 1}`, category };
+        const sizeSelect = slot.querySelector(".slot-size");
+        if (category === "pizza" && sizeSelect && sizeSelect.value) {
+          out.size_id = Number(sizeSelect.value);
+          out.size_name = sizeSelect.options[sizeSelect.selectedIndex].textContent;
+        }
+        return out;
+      });
+      return { ...existing, name: readValue(card, ".promo-name").trim(), price: parseFloat(readValue(card, ".promo-price")) || 0, description: readValue(card, ".promo-description").trim(), slots };
+    });
+  }
+
+  // Turnos (a senha digitada fica guardada à parte até salvar)
+  const shiftCards = [...document.querySelectorAll(".shift-admin-card")];
+  if (shiftCards.length) {
+    currentData.shifts = shiftCards.map((card) => {
+      const existing = currentData.shifts.find((s) => String(s.id) === String(card.dataset.shiftId)) || { id: Number(card.dataset.shiftId), password: "" };
+      const typed = readValue(card, ".shift-password");
+      if (typed) pendingShiftPasswords[card.dataset.shiftId] = typed; else delete pendingShiftPasswords[card.dataset.shiftId];
+      return { ...existing, name: readValue(card, ".shift-name").trim() };
+    });
+  }
+
+  // Tamanhos de pizza
+  const sizeCards = [...document.querySelectorAll("#sizes-list .size-admin-card")];
+  if (sizeCards.length) {
+    currentData.pizza_sizes = sizeCards.map((card) => {
+      const existing = (currentData.pizza_sizes || []).find((s) => String(s.id) === String(card.dataset.sizeId)) || { id: Number(card.dataset.sizeId) };
+      return { ...existing, name: readValue(card, ".size-name").trim(), cm: parseInt(readValue(card, ".size-cm"), 10) || 0, price: parseFloat(readValue(card, ".size-price")) || 0 };
+    });
+  }
+
+  // Bordas e demais campos da loja / post do dia
+  const bordaCards = [...document.querySelectorAll("[data-borda-id]")];
+  const store = currentData.store;
+  if (bordaCards.length) {
+    store.bordas = bordaCards.map((card) => ({ id: card.dataset.bordaId, name: readValue(card, ".borda-name").trim(), price: parseFloat(readValue(card, ".borda-price")) || 0 }));
+  }
+  const activeButton = document.querySelector(".status-toggle button.active");
+  if (activeButton) {
+    const forceValue = activeButton.dataset.status;
+    store.force_status = forceValue === "auto" ? null : forceValue === "true";
+  }
+  store.hours = { open: getFieldValue("hour-open").trim(), close: getFieldValue("hour-close").trim() };
+  store.address = getFieldValue("store-address").trim();
+  store.delivery_time = getFieldValue("store-delivery-time").trim();
+  store.min_order = parseFloat(getFieldValue("store-min-order")) || 0;
+  store.whatsapp_number = getFieldValue("store-whatsapp").trim();
+  store.pix_key = getFieldValue("store-pix-key", store.pix_key || "").trim();
+  store.pix_name = getFieldValue("store-pix-name", store.pix_name || "").trim();
+  store.pix_city = getFieldValue("store-pix-city", store.pix_city || "").trim();
+  currentData.today_post = { ...currentData.today_post, title: document.getElementById("post-title").value.trim(), text: document.getElementById("post-text").value.trim() };
+}
+
 function refreshItemLists() {
   Object.entries(ITEM_LIST_IDS).forEach(([category, listId]) => {
     fillItemList(listId, currentData.items.filter((i) => i.category === category));
@@ -724,7 +807,8 @@ async function toggleItemAvailability(id) {
 }
 
 function categoryLabel(category) {
-  return { pizza: "Pizza", salgado: "Salgado", bebida: "Bebida" }[category] || category;
+  const custom = ((currentData && currentData.sections) || []).find((s) => s.category === category);
+  return { pizza: "Pizza", salgado: "Salgado", bebida: "Bebida" }[category] || (custom ? custom.name : category);
 }
 
 function fillPromoList(promotions, items) {
@@ -742,18 +826,13 @@ function fillPromoList(promotions, items) {
       </div>
       <div class="field"><label>Descrição</label><textarea class="promo-description" placeholder="Ex.: Escolha os sabores das duas pizzas. Algumas pizzas podem ter adicional.">${escapeHTML(promo.description || "")}</textarea></div>
       <div class="promo-slots-header"><strong>Escolhas do cliente</strong><button type="button" class="add-slot-btn">+ Adicionar escolha</button></div>
-      <div class="promo-slots">${(promo.slots || []).map((slot, index) => `
-        <div class="promo-slot" data-slot-index="${index}">
-          <div class="field"><label>Nome da escolha</label><input type="text" class="slot-label" value="${escapeHTML(slot.label || `Escolha ${index + 1}`)}"></div>
-          <div class="field"><label>Categoria permitida</label><select class="slot-category"><option value="pizza" ${slot.category === "pizza" ? "selected" : ""}>Pizza</option><option value="salgado" ${slot.category === "salgado" ? "selected" : ""}>Salgado</option><option value="bebida" ${slot.category === "bebida" ? "selected" : ""}>Bebida</option></select></div>
-          <button type="button" class="delete-slot-btn">Excluir escolha</button>
-        </div>`).join("")}</div>
+      <div class="promo-slots">${(promo.slots || []).map((slot, index) => promoSlotHTML(slot, index)).join("")}</div>
       <button type="button" class="delete-promo-btn">Excluir promoção</button>
     </div>`).join("");
 
   container.querySelectorAll(".delete-promo-btn").forEach((btn) => btn.addEventListener("click", () => removePromo(btn.closest(".promo-admin-card").dataset.promoId)));
   container.querySelectorAll(".add-slot-btn").forEach((btn) => btn.addEventListener("click", () => addPromoSlot(btn.closest(".promo-admin-card"))));
-  container.querySelectorAll(".delete-slot-btn").forEach((btn) => btn.addEventListener("click", () => btn.closest(".promo-slot").remove()));
+  container.querySelectorAll(".promo-slot").forEach(wirePromoSlot);
   container.querySelectorAll(".promo-image-file").forEach((input) => input.addEventListener("change", async () => {
     const card = input.closest(".promo-admin-card");
     const promo = currentData.promotions.find((p) => String(p.id) === String(card.dataset.promoId));
@@ -762,14 +841,63 @@ function fillPromoList(promotions, items) {
   }));
 }
 
+/* ---------- escolhas (slots) das promoções ---------- */
+
+/* Tamanhos de pizza disponíveis agora (lidos da tela, para pegar também os
+ * tamanhos que o admin acabou de criar/renomear e ainda não salvou). */
+function currentSizeOptions() {
+  const cards = [...document.querySelectorAll("#sizes-list .size-admin-card")];
+  if (cards.length) {
+    return cards.map((card) => ({ id: String(card.dataset.sizeId), name: card.querySelector(".size-name").value.trim() || "(sem nome)" }));
+  }
+  return (currentData.pizza_sizes || []).map((size) => ({ id: String(size.id), name: size.name }));
+}
+
+function slotSizeOptionsHTML(selectedId, enabled) {
+  const first = enabled ? "Sem tamanho específico" : "— (só para pizza)";
+  const selected = selectedId == null ? "" : String(selectedId);
+  return `<option value="">${first}</option>` + currentSizeOptions()
+    .map((size) => `<option value="${escapeHTML(size.id)}"${size.id === selected ? " selected" : ""}>${escapeHTML(size.name)}</option>`)
+    .join("");
+}
+
+function slotCategoryOptionsHTML(selected) {
+  const options = [["pizza", "Pizza"], ["salgado", "Salgado"], ["bebida", "Bebida"], ...((currentData && currentData.sections) || []).map((s) => [s.category, s.name])];
+  return options.map(([value, label]) => `<option value="${escapeHTML(value)}"${value === selected ? " selected" : ""}>${escapeHTML(label)}</option>`).join("");
+}
+
+function promoSlotHTML(slot, index) {
+  const isPizza = slot.category === "pizza";
+  return `
+        <div class="promo-slot" data-slot-index="${index}">
+          <div class="field"><label>Nome da escolha</label><input type="text" class="slot-label" value="${escapeHTML(slot.label || `Escolha ${index + 1}`)}"></div>
+          <div class="field"><label>Categoria permitida</label><select class="slot-category">${slotCategoryOptionsHTML(slot.category)}</select></div>
+          <div class="field"><label>Tamanho da pizza</label><select class="slot-size"${isPizza ? "" : " disabled"}>${slotSizeOptionsHTML(isPizza ? slot.size_id : null, isPizza)}</select></div>
+          <button type="button" class="delete-slot-btn">Excluir escolha</button>
+        </div>`;
+}
+
+/* Liga os botões de uma escolha: excluir, e trocar categoria (o tamanho só
+ * vale quando a categoria é pizza). */
+function wirePromoSlot(slotEl) {
+  slotEl.querySelector(".delete-slot-btn").addEventListener("click", () => slotEl.remove());
+  const categorySelect = slotEl.querySelector(".slot-category");
+  const sizeSelect = slotEl.querySelector(".slot-size");
+  categorySelect.addEventListener("change", () => {
+    const isPizza = categorySelect.value === "pizza";
+    sizeSelect.disabled = !isPizza;
+    if (!isPizza) sizeSelect.value = "";
+    sizeSelect.options[0].textContent = isPizza ? "Sem tamanho específico" : "— (só para pizza)";
+  });
+}
+
 function addPromoSlot(card) {
   const slots = card.querySelector(".promo-slots");
   const index = slots.children.length;
-  const div = document.createElement("div");
-  div.className = "promo-slot";
-  div.dataset.slotIndex = index;
-  div.innerHTML = `<div class="field"><label>Nome da escolha</label><input type="text" class="slot-label" value="Escolha ${index + 1}"></div><div class="field"><label>Categoria permitida</label><select class="slot-category"><option value="pizza">Pizza</option><option value="salgado">Salgado</option><option value="bebida">Bebida</option></select></div><button type="button" class="delete-slot-btn">Excluir escolha</button>`;
-  div.querySelector(".delete-slot-btn").addEventListener("click", () => div.remove());
+  const holder = document.createElement("div");
+  holder.innerHTML = promoSlotHTML({ label: `Escolha ${index + 1}`, category: "pizza" }, index).trim();
+  const div = holder.firstElementChild;
+  wirePromoSlot(div);
   slots.appendChild(div);
 }
 
@@ -788,7 +916,7 @@ function fillShiftList(shifts) {
     <div class="shift-admin-card" data-shift-id="${escapeHTML(shift.id)}">
       <div class="row">
         <div class="field"><label>Nome do turno</label><input type="text" class="shift-name" value="${escapeHTML(shift.name)}" placeholder="Ex.: Turno 1 (18h-19h)"></div>
-        <div class="field"><label>Senha do turno</label><input type="password" class="shift-password" value="" placeholder="${escapeHTML(placeholder)}" autocomplete="new-password"></div>
+        <div class="field"><label>Senha do turno</label><input type="password" class="shift-password" value="${escapeHTML(pendingShiftPasswords[shift.id] || "")}" placeholder="${escapeHTML(placeholder)}" autocomplete="new-password"></div>
       </div>
       <p class="field-hint" style="font-size:0.8rem;color:var(--ink-soft);margin:0 0 8px;">${hasPw ? "Senha já definida (não é possível visualizá-la). Preencha só se quiser trocar." : "Defina uma senha para este turno."}</p>
       <button type="button" class="delete-item-btn delete-shift-btn">Excluir turno</button>
@@ -799,6 +927,7 @@ function fillShiftList(shifts) {
 }
 
 function addShift() {
+  syncAllFromDOM();
   const ids = currentData.shifts.map((s) => Number(s.id)).filter(Number.isFinite);
   const nextId = ids.length ? Math.max(...ids) + 1 : 1;
   currentData.shifts.push({ id: nextId, name: `Turno ${nextId}`, password: "" });
@@ -809,8 +938,10 @@ function addShift() {
 }
 
 function removeShift(id) {
+  syncAllFromDOM();
   const shift = currentData.shifts.find((s) => String(s.id) === String(id));
   if (!shift || !window.confirm(`Excluir o turno "${shift.name}"? Quem usa essa senha não conseguirá mais entrar em /funcionarios.`)) return;
+  delete pendingShiftPasswords[id];
   currentData.shifts = currentData.shifts.filter((s) => String(s.id) !== String(id));
   fillForm(currentData);
 }
@@ -835,6 +966,7 @@ function fillSizeList(sizes) {
 }
 
 function addSize() {
+  syncAllFromDOM();
   const sizes = currentData.pizza_sizes || [];
   const ids = sizes.map((s) => Number(s.id)).filter(Number.isFinite);
   const nextId = ids.length ? Math.max(...ids) + 1 : 1;
@@ -847,8 +979,12 @@ function addSize() {
 }
 
 function removeSize(id) {
+  syncAllFromDOM();
   const size = (currentData.pizza_sizes || []).find((s) => String(s.id) === String(id));
-  if (!size || !window.confirm(`Excluir o tamanho "${size.name}"? Ele deixará de aparecer na página das pizzas.`)) return;
+  if (!size) return;
+  const usedBy = [...document.querySelectorAll(".promo-admin-card .slot-size")].filter((select) => select.value === String(id)).length;
+  const promoWarning = usedBy ? `\n\nAtenção: ele é usado em ${usedBy} escolha${usedBy === 1 ? "" : "s"} de promoções, que ficarão sem tamanho definido.` : "";
+  if (!window.confirm(`Excluir o tamanho "${size.name}"? Ele deixará de aparecer na página das pizzas.${promoWarning}`)) return;
   currentData.pizza_sizes = currentData.pizza_sizes.filter((s) => String(s.id) !== String(id));
   fillForm(currentData);
 }
@@ -873,6 +1009,7 @@ function fillBordaList(bordas) {
 }
 
 function addBorda() {
+  syncAllFromDOM();
   const bordas = currentData.store.bordas || [];
   const ids = bordas.map((b) => Number(b.id)).filter(Number.isFinite);
   const nextId = ids.length ? Math.max(...ids) + 1 : 1;
@@ -885,6 +1022,7 @@ function addBorda() {
 }
 
 function removeBorda(id) {
+  syncAllFromDOM();
   const borda = (currentData.store.bordas || []).find((b) => String(b.id) === String(id));
   if (!borda || !window.confirm(`Excluir a borda "${borda.name}"? Ela deixará de aparecer nas pizzas.`)) return;
   currentData.store.bordas = currentData.store.bordas.filter((b) => String(b.id) !== String(id));
@@ -1157,16 +1295,258 @@ function removeItem(id) {
   refreshItemLists();
 }
 
+/* ---------- Seções extras do cardápio ----------
+ * Pizzas, Salgados e Bebidas são fixas. Além delas o admin cria as seções que
+ * quiser (Sobremesas, Porções...). Cada seção nova ganha o próprio painel de
+ * produtos (mesmos campos: nome, preço, foto, descrição) e aparece sozinha no
+ * site do cliente. Os produtos guardam o código da seção (ex.: "sec-1"), que
+ * não muda quando a seção é renomeada. */
+const BUILTIN_CATEGORIES = ["pizza", "salgado", "bebida"];
+
+function ensureSections() {
+  if (!Array.isArray(currentData.sections)) currentData.sections = [];
+  return currentData.sections;
+}
+
+function renderCustomSections() {
+  const wrap = document.querySelector("main.wrap");
+  const anchor = document.getElementById("custom-sections-anchor");
+  if (!wrap || !anchor || !currentData) return;
+  const sections = ensureSections();
+
+  wrap.querySelectorAll(":scope > .custom-section-panel").forEach((panel) => panel.remove());
+  Object.keys(ITEM_LIST_IDS).forEach((category) => {
+    if (BUILTIN_CATEGORIES.includes(category)) return;
+    delete ITEM_LIST_IDS[category];
+    delete QUICKADD_LABEL[category];
+  });
+
+  sections.forEach((section) => {
+    const listId = `custom-list-${section.id}`;
+    ITEM_LIST_IDS[section.category] = listId;
+    QUICKADD_LABEL[section.category] = "Novo produto";
+    const panel = document.createElement("section");
+    panel.className = "panel custom-section-panel";
+    panel.dataset.category = section.category;
+    panel.innerHTML = `<div class="panel-heading-row"><h2>Cardápio — ${escapeHTML(section.name)}</h2><button type="button" class="add-item-btn" data-category="${escapeHTML(section.category)}">+ Adicionar produto</button></div><div id="${listId}"></div>`;
+    anchor.before(panel);
+    panel.querySelector(".add-item-btn").addEventListener("click", () => addItem(section.category));
+  });
+
+  initCollapsiblePanels();
+  initItemToolbars();
+  sections.forEach((section) => {
+    fillItemList(ITEM_LIST_IDS[section.category], currentData.items.filter((item) => item.category === section.category));
+  });
+  renderSectionsManageList();
+  renderSectionQuickNav();
+}
+
+function renderSectionsManageList() {
+  const box = document.getElementById("sections-manage-list");
+  if (!box) return;
+  const sections = ensureSections();
+  if (!sections.length) {
+    box.innerHTML = `<div class="empty-items">Nenhuma seção extra criada ainda. Clique em "+ Adicionar nova seção".</div>`;
+    return;
+  }
+  box.innerHTML = sections.map((section) => {
+    const count = currentData.items.filter((item) => item.category === section.category).length;
+    return `
+    <div class="section-manage-row" data-section-id="${escapeHTML(section.id)}">
+      <div class="section-manage-name"><strong>${escapeHTML(section.name)}</strong><small>${count} produto${count === 1 ? "" : "s"}</small></div>
+      <div class="section-manage-actions">
+        <button type="button" class="rename-section-btn">Renomear</button>
+        <button type="button" class="delete-item-btn delete-section-btn">Excluir seção</button>
+      </div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".section-manage-row").forEach((row) => {
+    const id = row.dataset.sectionId;
+    row.querySelector(".rename-section-btn").addEventListener("click", () => renameSection(id));
+    row.querySelector(".delete-section-btn").addEventListener("click", () => deleteSection(id));
+  });
+}
+
+/* Atalhos no topo: um botão por seção nova, logo depois de "Bebidas". */
+function renderSectionQuickNav() {
+  const nav = document.querySelector(".admin-quicknav");
+  if (!nav) return;
+  nav.querySelectorAll(".custom-quicknav-btn").forEach((btn) => btn.remove());
+  let ref = [...nav.children].find((btn) => btn.textContent === "Bebidas") || null;
+  document.querySelectorAll("main.wrap > .custom-section-panel").forEach((panel) => {
+    const section = ensureSections().find((entry) => entry.category === panel.dataset.category);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "custom-quicknav-btn";
+    btn.textContent = section ? section.name : "Seção";
+    btn.addEventListener("click", () => {
+      openPanelContaining(panel);
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    if (ref) { ref.after(btn); ref = btn; } else { nav.appendChild(btn); }
+  });
+}
+
+function sectionNameTaken(name, ignoreId) {
+  const wanted = normalizeSearch(name);
+  const reserved = ["pizza", "pizzas", "salgado", "salgados", "bebida", "bebidas", "promocao", "promocoes"];
+  if (reserved.includes(wanted)) return true;
+  return ensureSections().some((section) => String(section.id) !== String(ignoreId) && normalizeSearch(section.name) === wanted);
+}
+
+function addSection() {
+  const raw = window.prompt("Qual será o nome da nova seção?\n(ex.: Sobremesas, Porções, Hambúrgueres)");
+  if (raw === null) return;
+  const name = raw.trim().slice(0, 60);
+  if (!name) { showToast("Digite um nome para a seção"); return; }
+  if (sectionNameTaken(name)) { showToast("Já existe uma seção com esse nome"); return; }
+
+  syncItemsFromDOM();
+  const sections = ensureSections();
+  // O número nunca repete um já usado (nem por produtos "órfãos" de uma seção apagada).
+  const used = [
+    ...sections.map((section) => Number(section.id)),
+    ...currentData.items.map((item) => Number(String(item.category).replace(/^sec-/, ""))),
+  ].filter(Number.isFinite);
+  const nextId = used.length ? Math.max(...used) + 1 : 1;
+  const category = `sec-${nextId}`;
+  sections.push({ id: nextId, category, name });
+  renderCustomSections();
+
+  const panel = document.querySelector(`.custom-section-panel[data-category="${category}"]`);
+  openPanelContaining(panel);
+  panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  showToast(`Seção "${name}" criada. Adicione os produtos e clique em Salvar.`);
+}
+
+function renameSection(id) {
+  const section = ensureSections().find((entry) => String(entry.id) === String(id));
+  if (!section) return;
+  const raw = window.prompt("Novo nome da seção:", section.name);
+  if (raw === null) return;
+  const name = raw.trim().slice(0, 60);
+  if (!name) { showToast("O nome da seção não pode ficar vazio"); return; }
+  if (sectionNameTaken(name, id)) { showToast("Já existe uma seção com esse nome"); return; }
+  syncItemsFromDOM();
+  section.name = name;
+  renderCustomSections();
+  fillPromoList(currentData.promotions, currentData.items);
+  showToast("Seção renomeada. Clique em Salvar para publicar.");
+}
+
+function deleteSection(id) {
+  const section = ensureSections().find((entry) => String(entry.id) === String(id));
+  if (!section) return;
+
+  const usedInPromo = currentData.promotions.some((promo) => (promo.slots || []).some((slot) => slot.category === section.category))
+    || [...document.querySelectorAll(".promo-admin-card .slot-category")].some((select) => select.value === section.category);
+  if (usedInPromo) {
+    window.alert(`A seção "${section.name}" é usada em uma promoção. Tire essa escolha da promoção (ou troque a categoria dela) antes de excluir a seção.`);
+    return;
+  }
+
+  syncItemsFromDOM();
+  const inside = currentData.items.filter((item) => item.category === section.category);
+  const message = inside.length
+    ? `Excluir a seção "${section.name}" e os ${inside.length} produto${inside.length === 1 ? "" : "s"} dentro dela? A exclusão só vale depois de clicar em Salvar (o sistema guarda um backup dos produtos).`
+    : `Excluir a seção "${section.name}"?`;
+  if (!window.confirm(message)) return;
+
+  inside.forEach((item) => { newItemIds.delete(Number(item.id)); expandedItemIds.delete(Number(item.id)); });
+  currentData.items = currentData.items.filter((item) => item.category !== section.category);
+  currentData.sections = ensureSections().filter((entry) => String(entry.id) !== String(id));
+  renderCustomSections();
+  showToast("Seção excluída. Clique em Salvar para publicar.");
+}
+
+/* "+ Adicionar promoção": abre uma janelinha que pergunta primeiro o
+ * TAMANHO de cada pizza (ex.: Grande + Broto) e o PREÇO das pizzas juntas.
+ * Depois cria a promoção já pronta; o resto (foto, descrição, mais
+ * escolhas) se edita no cartão da promoção. */
 function addPromotion() {
-  const ids = currentData.promotions.map((p) => Number(p.id)).filter(Number.isFinite);
-  const nextId = ids.length ? Math.max(...ids) + 1 : 1;
-  currentData.promotions.push({ id: nextId, name: "Promoção de 2 pizzas", price: 50, image: "", description: "Escolha o sabor de cada pizza. Pizzas com adicional podem aumentar o valor final.", slots: [{ label: "Pizza 1", category: "pizza" }, { label: "Pizza 2", category: "pizza" }] });
-  fillForm(currentData);
-  const card = document.querySelector(`.promo-admin-card[data-promo-id="${nextId}"]`);
-  card?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const sizes = currentSizeOptions();
+  const overlay = document.createElement("div");
+  overlay.className = "admin-modal-overlay";
+  overlay.innerHTML = `
+    <div class="admin-modal" role="dialog" aria-modal="true" aria-label="Nova promoção">
+      <button type="button" class="admin-modal-close" aria-label="Fechar">×</button>
+      <h2>Nova promoção</h2>
+      <div class="field"><label>Nome da promoção (opcional)</label><input type="text" class="np-name" placeholder="Ex.: Combo Grande + Broto"></div>
+      <div class="np-pizzas"></div>
+      <button type="button" class="np-add-pizza">+ Adicionar outra pizza</button>
+      ${sizes.length ? "" : `<p class="field-hint">Ainda não há tamanhos cadastrados (painel "Tamanhos das pizzas"). A promoção será criada sem tamanho definido.</p>`}
+      <div class="field"><label>Preço das pizzas juntas (R$)</label><input type="number" min="0" step="0.5" class="np-price" placeholder="Ex.: 79.90"></div>
+      <p class="np-error product-warning"></p>
+      <div class="admin-modal-actions">
+        <button type="button" class="np-cancel">Cancelar</button>
+        <button type="button" class="np-create">Criar promoção</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const pizzasBox = overlay.querySelector(".np-pizzas");
+  const sizeSelectHTML = (defaultId) => `<option value="">Sem tamanho específico</option>` + sizes
+    .map((size) => `<option value="${escapeHTML(size.id)}"${String(defaultId) === size.id ? " selected" : ""}>${escapeHTML(size.name)}</option>`)
+    .join("");
+  const addPizzaRow = (defaultId) => {
+    const row = document.createElement("div");
+    row.className = "field np-pizza-row";
+    const number = pizzasBox.children.length + 1;
+    row.innerHTML = `<label>Tamanho da Pizza ${number}</label><div class="np-pizza-line"><select class="np-size">${sizeSelectHTML(defaultId)}</select>${number > 2 ? `<button type="button" class="np-remove-pizza" aria-label="Remover pizza">✕</button>` : ""}</div>`;
+    row.querySelector(".np-remove-pizza")?.addEventListener("click", () => {
+      row.remove();
+      [...pizzasBox.querySelectorAll(".np-pizza-row label")].forEach((label, i) => { label.textContent = `Tamanho da Pizza ${i + 1}`; });
+    });
+    pizzasBox.appendChild(row);
+  };
+  // Começa com 2 pizzas; se já existirem tamanhos, sugere os dois maiores da lista.
+  addPizzaRow(sizes.length ? sizes[Math.min(2, sizes.length - 1)].id : "");
+  addPizzaRow(sizes.length ? sizes[0].id : "");
+  overlay.querySelector(".np-add-pizza").addEventListener("click", () => addPizzaRow(""));
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".admin-modal-close").addEventListener("click", close);
+  overlay.querySelector(".np-cancel").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+
+  overlay.querySelector(".np-create").addEventListener("click", () => {
+    const errorEl = overlay.querySelector(".np-error");
+    const priceRaw = overlay.querySelector(".np-price").value.trim();
+    if (priceRaw === "" || Number.isNaN(Number(priceRaw)) || Number(priceRaw) < 0) {
+      errorEl.textContent = "Digite o preço das pizzas juntas (pode ser 0).";
+      overlay.querySelector(".np-price").focus();
+      return;
+    }
+    const price = Number(priceRaw);
+    const slots = [...pizzasBox.querySelectorAll(".np-size")].map((select, index) => {
+      const slot = { label: `Pizza ${index + 1}`, category: "pizza" };
+      const size = sizes.find((entry) => entry.id === select.value);
+      if (size) { slot.size_id = Number(size.id); slot.size_name = size.name; }
+      return slot;
+    });
+    const sizeNames = slots.map((slot) => slot.size_name).filter(Boolean);
+    const typedName = overlay.querySelector(".np-name").value.trim();
+    const name = typedName || (sizeNames.length === slots.length ? `Promoção ${sizeNames.join(" + ")}` : `Promoção de ${slots.length} pizzas`);
+
+    syncAllFromDOM();   // guarda o que já foi digitado nas outras promoções antes de redesenhar
+    const ids = currentData.promotions.map((p) => Number(p.id)).filter(Number.isFinite);
+    const nextId = ids.length ? Math.max(...ids) + 1 : 1;
+    currentData.promotions.push({ id: nextId, name, price, image: "", description: "Escolha o sabor de cada pizza. Pizzas com adicional podem aumentar o valor final.", slots });
+    close();
+    syncItemsFromDOM();
+    fillForm(currentData);
+    const card = document.querySelector(`.promo-admin-card[data-promo-id="${nextId}"]`);
+    openPanelContaining(card);
+    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+    showToast(`Promoção "${name}" criada. Clique em Salvar para publicar.`);
+  });
+
+  overlay.querySelector(".np-price").focus();
 }
 
 function removePromo(id) {
+  syncAllFromDOM();
   const promo = currentData.promotions.find((p) => String(p.id) === String(id));
   if (!promo || !window.confirm(`Excluir a promoção "${promo.name}"?`)) return;
   currentData.promotions = currentData.promotions.filter((p) => String(p.id) !== String(id));
@@ -1179,6 +1559,7 @@ document.querySelectorAll(".status-toggle button").forEach((btn) => btn.addEvent
 }));
 document.querySelectorAll(".add-item-btn[data-category]").forEach((button) => button.addEventListener("click", () => addItem(button.dataset.category)));
 document.querySelector(".add-promo-btn")?.addEventListener("click", addPromotion);
+document.getElementById("add-section-btn")?.addEventListener("click", addSection);
 document.querySelector(".add-shift-btn")?.addEventListener("click", addShift);
 document.getElementById("add-size-btn")?.addEventListener("click", addSize);
 document.getElementById("add-borda-btn")?.addEventListener("click", addBorda);
@@ -1205,7 +1586,17 @@ function collectForm() {
 
   const promotions = [...document.querySelectorAll(".promo-admin-card")].map((card) => {
     const existing = currentData.promotions.find((p) => String(p.id) === String(card.dataset.promoId));
-    const slots = [...card.querySelectorAll(".promo-slot")].map((slot, index) => ({ label: slot.querySelector(".slot-label").value.trim() || `Escolha ${index + 1}`, category: slot.querySelector(".slot-category").value }));
+    const slots = [...card.querySelectorAll(".promo-slot")].map((slot, index) => {
+      const category = slot.querySelector(".slot-category").value;
+      const out = { label: slot.querySelector(".slot-label").value.trim() || `Escolha ${index + 1}`, category };
+      const sizeSelect = slot.querySelector(".slot-size");
+      // O tamanho só vale para pizza. O servidor confere o id e atualiza o nome.
+      if (category === "pizza" && sizeSelect && sizeSelect.value) {
+        out.size_id = Number(sizeSelect.value);
+        out.size_name = sizeSelect.options[sizeSelect.selectedIndex].textContent;
+      }
+      return out;
+    });
     if (!slots.length) throw new Error(`A promoção "${card.querySelector(".promo-name").value.trim()}" precisa ter pelo menos uma escolha.`);
     return { ...existing, name: card.querySelector(".promo-name").value.trim(), price: parseFloat(card.querySelector(".promo-price").value) || 0, image: existing?.image || "", description: card.querySelector(".promo-description").value.trim(), slots };
   });
@@ -1247,7 +1638,8 @@ function collectForm() {
     revision: currentData.revision,
     promotions,
     shifts,
-    pizza_sizes
+    pizza_sizes,
+    sections: (currentData.sections || []).map((section) => ({ id: section.id, category: section.category, name: section.name }))
   };
 }
 
@@ -1258,6 +1650,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
     if (!res.ok) { let message = "O servidor recusou as alterações."; try { const result = await res.json(); message = result.error || message; } catch (_) {} throw new Error(message); }
     const saved = await res.json().catch(() => ({}));
     currentData = payload;
+    Object.keys(pendingShiftPasswords).forEach((key) => delete pendingShiftPasswords[key]);
     if (Number.isInteger(saved.revision)) currentData.revision = saved.revision;
     newItemIds.clear();
     document.querySelectorAll(".item-row").forEach(updateRowSummary);
@@ -1287,7 +1680,7 @@ async function loadBackups() {
       return;
     }
     box.innerHTML = data.backups.map((b) => {
-      const parts = Object.entries(b.counts).map(([cat, n]) => `${n} ${BACKUP_LABELS[cat] || cat}`).join(" · ");
+      const parts = Object.entries(b.counts).map(([cat, n]) => `${n} ${BACKUP_LABELS[cat] || categoryLabel(cat)}`).join(" · ");
       const when = String(b.created_at).replace("T", " ").slice(0, 16);
       return `<div class="backup-row" data-id="${b.id}"><div><strong>${escapeHTML(when)}</strong><small>${escapeHTML(parts)} (${b.item_count} no total)</small></div><button type="button" class="item-toggle-all backup-restore-btn">Recuperar</button></div>`;
     }).join("");

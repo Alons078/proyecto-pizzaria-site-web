@@ -140,4 +140,4 @@ async function cancelOrder(token, btn) {
 }
 
 load();
-poller = LiveRefresh.every(load, 4000);
+poller = LiveRefresh.every(load, 10000);

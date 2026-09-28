@@ -2,7 +2,7 @@ let lastMenuSignature = "";
 
 async function loadData() {
   try {
-    const res = await fetch("/api/data", { cache: "no-store" });
+    const res = await fetch("/api/data", { cache: "no-cache" });
     if (!res.ok) throw new Error("Não foi possível carregar o cardápio.");
     const data = await res.json();
     // Só redesenha se algo mudou (preço, esgotado, aberto/fechado, promoção...).
@@ -65,12 +65,41 @@ function render(data) {
   // Salgados e bebidas usam cartões compactos: cabem mais na tela sem rolar tanto.
   fillGrid("salgados-grid", items.filter((i) => i.category === "salgado"), undefined, true);
   fillGrid("bebidas-grid", items.filter((i) => i.category === "bebida"), undefined, true);
+  fillCustomSections(data.sections || [], items);
 
   document.getElementById("foot-hours").textContent =
     `${store.hours.open} – ${store.hours.close}`;
   document.getElementById("foot-address").textContent = store.address;
 
   setupScrollReveal();
+}
+
+/* Seções extras criadas pelo admin: cada uma vira um título + grade de
+ * produtos (cartões compactos, como salgados e bebidas) e um link no menu
+ * de cima. Seção sem nenhum produto não aparece para o cliente. */
+function fillCustomSections(sections, items) {
+  const holder = document.getElementById("custom-sections");
+  const nav = document.getElementById("cat-nav");
+  if (!holder) return;
+  if (nav) nav.querySelectorAll(".custom-nav-link").forEach((link) => link.remove());
+
+  const visible = sections.filter((section) => items.some((i) => i.category === section.category));
+  holder.innerHTML = visible.map((section) => `
+    <div id="${escapeHTML(section.category)}-section" class="custom-section">
+      <h2 class="section-title reveal">${escapeHTML(section.name)}</h2>
+      <div class="grid" id="${escapeHTML(section.category)}-grid"></div>
+    </div>`).join("");
+
+  visible.forEach((section) => {
+    fillGrid(`${section.category}-grid`, items.filter((i) => i.category === section.category), undefined, true);
+    if (nav) {
+      const link = document.createElement("a");
+      link.className = "custom-nav-link";
+      link.href = `#${section.category}-section`;
+      link.textContent = section.name;
+      nav.appendChild(link);
+    }
+  });
 }
 
 function fillInfoBar(store) {
@@ -202,8 +231,8 @@ function fillGrid(elementId, list, pizzaSizes, compact = false) {
 }
 
 loadData();
-// Atualiza o cardápio sozinho a cada 15s (e na hora ao voltar para a aba).
-LiveRefresh.every(loadData, 15000);
+// Atualiza o cardápio sozinho a cada 30s (e na hora ao voltar para a aba).
+LiveRefresh.every(loadData, 30000);
 
 
 function formatPrice(value) {
@@ -224,11 +253,18 @@ function fillPromotions(promotions, items) {
       <div class="image-slot small">${promo.image ? `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">` : `<span>foto</span>`}</div>
       <div class="name">${escapeHTML(promo.name)}</div>
       ${promo.description ? `<div class="description">${escapeHTML(promo.description)}</div>` : ""}
+      ${promoSizesLabel(promo) ? `<div class="promo-sizes">${escapeHTML(promoSizesLabel(promo))}</div>` : ""}
       <div class="promo-base-price">Preço base: ${formatPrice(promo.price)}</div>
       <span class="card-cta">Escolher e pedir →</span>
     </a>`).join("");
 
   setupScrollReveal();
+}
+
+/* Ex.: "Grande + Broto" (tamanhos das pizzas da promoção, se o admin definiu). */
+function promoSizesLabel(promo) {
+  const sizes = (promo.slots || []).filter((s) => s.category === "pizza" && s.size_name).map((s) => s.size_name);
+  return sizes.length ? sizes.join(" + ") : "";
 }
 
 function categoryLabel(category) {

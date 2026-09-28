@@ -487,6 +487,12 @@ function buildCartEntry() {
     name,
     qty: currentQty,
     unit_price: currentUnitPrice(),
+    // Escolha detalhada: o servidor recalcula o preço com isso (ver cart.js).
+    sel: {
+      size_id: size ? size.id : null,
+      split_ids: (flavorMode === "split" && splitFlavorIds.length) ? splitFlavorIds.map(Number) : null,
+      borda_id: selectedBordaId == null ? null : selectedBordaId,
+    },
     // Quantas pizzas tem em uma unidade deste produto (1 se for pizza,
     // 0 se for salgado/bebida). Só usado pro resumo de vendas do admin.
     pizza_count: currentItem.category === "pizza" ? 1 : 0,
@@ -575,7 +581,7 @@ function buyNowConfirm(event) {
   }
   warningEl.textContent = "";
 
-  const cartLine = [{ name: fullProductName(), qty: currentQty, unit_price: unitPrice }];
+  const cartLine = [buildCartEntry()];
   const checkout = {
     name: customerName, phone: customerPhone, delivery, address, payment,
     notes: "", trocoPaidWith, trocoAmount,

@@ -128,4 +128,4 @@ async function load() {
 }
 
 load();
-poller = LiveRefresh.every(load, 4000);
+poller = LiveRefresh.every(load, 10000);

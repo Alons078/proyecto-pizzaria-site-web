@@ -64,7 +64,7 @@ const LiveRefresh = (() => {
    *   - cliente já estava mexendo -> NÃO recarrega (perderia o que digitou);
    *     mostra uma faixa "Atualizamos o cardápio — Atualizar".
    * O carrinho fica salvo no navegador, então recarregar não perde itens. */
-  function watchPage({ ms = 20000, pick } = {}) {
+  function watchPage({ ms = 30000, pick } = {}) {
     let baseline = null;
     let touched = false;
     let bannerShown = false;
@@ -88,7 +88,7 @@ const LiveRefresh = (() => {
     }
 
     return every(async () => {
-      const res = await fetch("/api/data", { cache: "no-store" });
+      const res = await fetch("/api/data", { cache: "no-cache" });
       if (!res.ok) return;
       const data = await res.json();
       const signature = JSON.stringify(pick ? pick(data) : data);

@@ -33,6 +33,12 @@ function cartAdd(entry) {
   const existing = cart.find((line) => line.key === entry.key);
   if (existing) {
     existing.qty += entry.qty;
+    // Refresca com os dados da escolha mais recente (se o admin mudou o preço
+    // desde que a linha entrou no carrinho, não ficamos com o valor velho).
+    existing.unit_price = entry.unit_price;
+    existing.name = entry.name;
+    if (entry.sel) existing.sel = entry.sel;
+    if (entry.pizza_count !== undefined) existing.pizza_count = entry.pizza_count;
   } else {
     cart.push(entry);
   }
@@ -60,6 +66,45 @@ function cartRemove(key) {
 
 function cartClear() {
   cartSave([]);
+}
+
+/* Confere o carrinho com o cardápio atual do servidor. Atualiza os preços que
+ * mudaram e remove o que não existe mais. Devolve { changed: [nomes],
+ * removed: [nomes] }. Se o servidor não responder, não mexe em nada. */
+async function cartSyncPrices() {
+  const cart = cartLoad();
+  if (!cart.some((line) => line && line.sel)) return { changed: [], removed: [] };
+  try {
+    const res = await fetch("/api/carrinho/conferir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: cart.map((l) => ({ key: l.key, type: l.type, id: l.id, sel: l.sel })) }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok || !Array.isArray(data.lines)) return { changed: [], removed: [] };
+    const byKey = new Map(data.lines.map((l) => [l.key, l]));
+    const changed = [];
+    const removed = [];
+    const next = [];
+    for (const line of cart) {
+      const info = byKey.get(line.key);
+      if (info && info.status === "invalid") {
+        removed.push(line.name);
+        continue;
+      }
+      let updated = line;
+      if (info && info.status === "ok" && Math.abs(Number(info.unit_price) - Number(line.unit_price)) > 0.005) {
+        changed.push(line.name);
+        updated = { ...line, unit_price: Number(info.unit_price) };
+      }
+      next.push(updated);
+    }
+    if (changed.length || removed.length) cartSave(next);
+    return { changed, removed };
+  } catch (error) {
+    console.error(error);
+    return { changed: [], removed: [] };
+  }
 }
 
 function cartTotal(cart) {
@@ -118,7 +163,10 @@ function cartOrderMessage(cart, total, checkout) {
  * normalmente — só não vai sair impresso sozinho. */
 function cartRegisterOrder(cart, checkout) {
   const payload = {
-    items: cart.map((line) => ({ name: line.name, qty: line.qty, unit_price: line.unit_price, pizza_count: line.pizza_count || 0 })),
+    // type/id/sel: a escolha detalhada (tamanho, sabores, borda...). O servidor
+    // usa isso para RECALCULAR o preço pelo cardápio dele; o unit_price que o
+    // navegador manda é só informativo e nunca é confiável.
+    items: cart.map((line) => ({ name: line.name, qty: line.qty, unit_price: line.unit_price, pizza_count: line.pizza_count || 0, type: line.type, id: line.id, sel: line.sel })),
     customer_name: checkout.name,
     customer_phone: checkout.phone,
     delivery_type: checkout.delivery,
