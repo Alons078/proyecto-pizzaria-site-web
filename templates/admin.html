@@ -275,9 +275,16 @@
 
     <div class="crop-controls">
       <label for="crop-zoom">Zoom</label>
-      <input id="crop-zoom" type="range" min="0.2" max="3" step="0.01" value="1">
+      <input id="crop-zoom" type="range" min="0.5" max="4" step="0.01" value="1">
       <span id="crop-zoom-value">100%</span>
-      <button type="button" class="editor-fit-btn" id="fit-image-btn">Ajustar imagem completa</button>
+    </div>
+
+    <div class="crop-tools">
+      <button type="button" class="crop-secondary" id="crop-fill-btn">Preencher quadro</button>
+      <button type="button" class="crop-secondary" id="fit-image-btn">Imagem inteira</button>
+      <label class="crop-bg-field" id="crop-bg-field" for="crop-bg">Fundo
+        <select id="crop-bg"><option value="blur">Desfocado</option></select>
+      </label>
     </div>
 
     <div class="crop-actions">
