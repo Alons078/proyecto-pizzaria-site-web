@@ -205,9 +205,12 @@ async function uploadImage(file, filename = "imagem.jpg") {
  * O quadro tem exatamente a proporção usada no site (4:3 nos produtos e
  * promoções), então o que aparece aqui é o que o cliente vê.
  * - Começa preenchendo o quadro (sem faixas brancas).
+ * - Detecta e remove bordas brancas que já vêm dentro da própria foto
+ *   (dá para desmarcar em "Remover bordas brancas").
  * - Arrastar move; roda do mouse / pinça / controle de zoom aproximam ou afastam.
  * - Dá para afastar até ver a imagem inteira; a sobra é preenchida com
  *   fundo desfocado (padrão), branco, preto ou transparente (só PNG).
+ * - Fotos já enviadas podem ser reajustadas com "Reajustar foto atual".
  */
 const cropState = {
   image: null,
@@ -215,6 +218,12 @@ const cropState = {
   outputType: "image/jpeg",
   bgMode: "blur",
   bgCanvas: null,
+  // Trecho da foto original que está sendo usado (sem as bordas brancas, se removidas).
+  srcX: 0,
+  srcY: 0,
+  srcW: 1,
+  srcH: 1,
+  trimRect: null,  // bordas brancas detectadas (ou null se não há)
   coverScale: 1,   // escala que preenche o quadro (zoom = 1)
   minZoom: 1,      // zoom mínimo = imagem inteira visível
   maxZoom: 4,
@@ -275,6 +284,100 @@ function syncCropControls() {
   if (zoomValue) zoomValue.textContent = `${Math.round(cropState.zoom * 100)}%`;
 }
 
+/* Define qual trecho da foto entra no quadro e recalcula zoom mínimo/máximo. */
+function applyCropSource(useTrim) {
+  const canvas = document.getElementById("crop-canvas");
+  const zoom = document.getElementById("crop-zoom");
+  const image = cropState.image;
+  if (!canvas || !zoom || !image) return;
+
+  const rect = useTrim && cropState.trimRect
+    ? cropState.trimRect
+    : { x: 0, y: 0, w: image.naturalWidth, h: image.naturalHeight };
+  cropState.srcX = rect.x;
+  cropState.srcY = rect.y;
+  cropState.srcW = rect.w;
+  cropState.srcH = rect.h;
+
+  const coverScale = Math.max(canvas.width / rect.w, canvas.height / rect.h);
+  const containScale = Math.min(canvas.width / rect.w, canvas.height / rect.h);
+  cropState.coverScale = coverScale;
+  cropState.minZoom = Math.floor((containScale / coverScale) * 100) / 100 || 0.1;
+  cropState.maxZoom = 4;
+  cropState.bgCanvas = buildBlurBackground(image, rect, cropState.aspectRatio);
+
+  zoom.min = String(cropState.minZoom);
+  zoom.max = String(cropState.maxZoom);
+  zoom.step = "0.01";
+  resetCrop(1); // começa preenchendo o quadro, sem faixas brancas
+}
+
+/* Procura faixas brancas (ou transparentes) nas bordas da própria foto.
+ * Devolve o retângulo útil em pixels da foto original, ou null se não há. */
+function detectWhiteBorders(image) {
+  const nw = image.naturalWidth;
+  const nh = image.naturalHeight;
+  const k = Math.min(1, 800 / Math.max(nw, nh));
+  const w = Math.max(1, Math.round(nw * k));
+  const h = Math.max(1, Math.round(nh * k));
+  const probe = document.createElement("canvas");
+  probe.width = w;
+  probe.height = h;
+  const ctx = probe.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0, w, h);
+
+  let data;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch (error) {
+    return null;
+  }
+
+  const isBackground = (i) => data[i + 3] < 12 || (data[i] >= 240 && data[i + 1] >= 240 && data[i + 2] >= 240);
+  const rowIsBackground = (y, x0, x1) => {
+    let bad = 0;
+    for (let x = x0; x <= x1; x++) if (!isBackground((y * w + x) * 4)) bad++;
+    return bad <= (x1 - x0 + 1) * 0.01;
+  };
+  const colIsBackground = (x, y0, y1) => {
+    let bad = 0;
+    for (let y = y0; y <= y1; y++) if (!isBackground((y * w + x) * 4)) bad++;
+    return bad <= (y1 - y0 + 1) * 0.01;
+  };
+
+  let top = 0;
+  while (top < h && rowIsBackground(top, 0, w - 1)) top++;
+  let bottom = h - 1;
+  while (bottom > top && rowIsBackground(bottom, 0, w - 1)) bottom--;
+  if (top >= bottom) return null; // foto praticamente toda branca
+
+  let left = 0;
+  while (left < w && colIsBackground(left, top, bottom)) left++;
+  let right = w - 1;
+  while (right > left && colIsBackground(right, top, bottom)) right--;
+  if (left >= right) return null;
+
+  const trimmed = top > 0 || left > 0 || bottom < h - 1 || right < w - 1;
+  if (!trimmed) return null;
+
+  // 1 pixel de folga para dentro, para não sobrar a linha clara da borda.
+  if (top > 0) top += 1;
+  if (bottom < h - 1) bottom -= 1;
+  if (left > 0) left += 1;
+  if (right < w - 1) right -= 1;
+  if (top >= bottom || left >= right) return null;
+
+  const x = Math.max(0, Math.floor(left / k));
+  const y = Math.max(0, Math.floor(top / k));
+  const x2 = Math.min(nw, Math.ceil((right + 1) / k));
+  const y2 = Math.min(nh, Math.ceil((bottom + 1) / k));
+  const rect = { x, y, w: x2 - x, h: y2 - y };
+
+  // Se sobrar muito pouco da foto (ex.: logo quase todo branco), não mexe.
+  if (rect.w < nw * 0.25 || rect.h < nh * 0.25) return null;
+  return rect;
+}
+
 function setupCropper() {
   const modal = document.getElementById("crop-modal");
   const canvas = document.getElementById("crop-canvas");
@@ -285,6 +388,7 @@ function setupCropper() {
   const fillButton = document.getElementById("crop-fill-btn");
   const fitButton = document.getElementById("fit-image-btn");
   const bgSelect = document.getElementById("crop-bg");
+  const trimCheck = document.getElementById("crop-trim");
 
   if (!modal || !canvas || !zoom || !save || !cancel || !cancelBottom) return;
 
@@ -371,6 +475,8 @@ function setupCropper() {
     drawCrop();
   });
 
+  trimCheck?.addEventListener("change", () => applyCropSource(trimCheck.checked));
+
   save.addEventListener("click", async () => {
     if (!cropState.image || !cropState.resolve) return;
     save.disabled = true;
@@ -388,81 +494,84 @@ function setupCropper() {
 
 /* Versão minúscula da foto, esticada depois: dá um efeito de desfoque
  * que funciona em qualquer navegador (inclusive iPhone). */
-function buildBlurBackground(image, aspectRatio) {
+function buildBlurBackground(image, rect, aspectRatio) {
   const bw = 48;
   const bh = Math.max(1, Math.round(bw / aspectRatio));
   const small = document.createElement("canvas");
   small.width = bw;
   small.height = bh;
   const ctx = small.getContext("2d");
-  const s = Math.max(bw / image.naturalWidth, bh / image.naturalHeight);
-  const dw = image.naturalWidth * s;
-  const dh = image.naturalHeight * s;
+  const s = Math.max(bw / rect.w, bh / rect.h);
+  const dw = rect.w * s;
+  const dh = rect.h * s;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(image, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
+  ctx.drawImage(image, rect.x, rect.y, rect.w, rect.h, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
   return small;
 }
 
-function openCropper(file, aspectRatio = 4 / 3, outputType = "image/jpeg") {
+/* `source` pode ser um File (foto nova) ou uma URL (foto já enviada). */
+function openCropper(source, aspectRatio = 4 / 3, outputType = "image/jpeg") {
+  const isUrl = typeof source === "string";
+
+  const start = (image, resolve) => {
+    const modal = document.getElementById("crop-modal");
+    const canvas = document.getElementById("crop-canvas");
+    const title = document.getElementById("crop-title");
+    const help = document.getElementById("crop-help");
+    const bgSelect = document.getElementById("crop-bg");
+    const trimField = document.getElementById("crop-trim-field");
+    const trimCheck = document.getElementById("crop-trim");
+
+    cropState.image = image;
+    cropState.aspectRatio = aspectRatio;
+    cropState.outputType = outputType;
+    cropState.resolve = resolve;
+    cropState.pointers.clear();
+
+    // Saída grande o suficiente para não perder qualidade no cardápio.
+    canvas.width = aspectRatio === 16 / 9 ? 1200 : aspectRatio === 1 ? 900 : 1200;
+    canvas.height = Math.round(canvas.width / aspectRatio);
+
+    // Fundo para a sobra quando a imagem não preenche o quadro.
+    const isPng = outputType === "image/png";
+    cropState.bgMode = isPng ? "transparent" : "blur";
+    if (bgSelect) {
+      bgSelect.innerHTML = [
+        ["blur", "Desfocado"],
+        ["white", "Branco"],
+        ["black", "Preto"],
+        ...(isPng ? [["transparent", "Transparente"]] : [])
+      ].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+      bgSelect.value = cropState.bgMode;
+    }
+
+    // Bordas brancas que já vêm dentro da foto (muito comum em fotos de tamanhos variados).
+    cropState.trimRect = detectWhiteBorders(image);
+    if (trimField) trimField.hidden = !cropState.trimRect;
+    if (trimCheck) trimCheck.checked = Boolean(cropState.trimRect);
+
+    title.textContent = aspectRatio === 16 / 9 ? "Ajustar imagem do post" : aspectRatio === 1 ? "Ajustar logo" : "Ajustar imagem do produto";
+    help.textContent = "Arraste a foto para posicionar. Use a roda do mouse, a pinça ou o zoom para aproximar/afastar. O quadro é exatamente o que aparece no site.";
+
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("crop-open");
+    applyCropSource(Boolean(cropState.trimRect));
+  };
+
   return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => start(image, resolve);
+    image.onerror = () => reject(new Error(isUrl ? "Não foi possível abrir a imagem atual." : "O arquivo selecionado não é uma imagem válida."));
+
+    if (isUrl) {
+      image.src = source;
+      return;
+    }
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Não foi possível ler a imagem."));
-    reader.onload = () => {
-      const image = new Image();
-      image.onload = () => {
-        const modal = document.getElementById("crop-modal");
-        const canvas = document.getElementById("crop-canvas");
-        const zoom = document.getElementById("crop-zoom");
-        const title = document.getElementById("crop-title");
-        const help = document.getElementById("crop-help");
-        const bgSelect = document.getElementById("crop-bg");
-
-        cropState.image = image;
-        cropState.aspectRatio = aspectRatio;
-        cropState.outputType = outputType;
-        cropState.resolve = resolve;
-        cropState.pointers.clear();
-
-        // Saída grande o suficiente para não perder qualidade no cardápio.
-        canvas.width = aspectRatio === 16 / 9 ? 1200 : aspectRatio === 1 ? 900 : 1200;
-        canvas.height = Math.round(canvas.width / aspectRatio);
-
-        const coverScale = Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-        const containScale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-        cropState.coverScale = coverScale;
-        cropState.minZoom = Math.floor((containScale / coverScale) * 100) / 100 || 0.1;
-        cropState.maxZoom = 4;
-        cropState.bgCanvas = buildBlurBackground(image, aspectRatio);
-
-        // Fundo para a sobra quando a imagem não preenche o quadro.
-        const isPng = outputType === "image/png";
-        cropState.bgMode = isPng ? "transparent" : "blur";
-        if (bgSelect) {
-          bgSelect.innerHTML = [
-            ["blur", "Desfocado"],
-            ["white", "Branco"],
-            ["black", "Preto"],
-            ...(isPng ? [["transparent", "Transparente"]] : [])
-          ].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
-          bgSelect.value = cropState.bgMode;
-        }
-
-        zoom.min = String(cropState.minZoom);
-        zoom.max = String(cropState.maxZoom);
-        zoom.step = "0.01";
-
-        title.textContent = aspectRatio === 16 / 9 ? "Ajustar imagem do post" : aspectRatio === 1 ? "Ajustar logo" : "Ajustar imagem do produto";
-        help.textContent = "Arraste a foto para posicionar. Use a roda do mouse, a pinça ou o zoom para aproximar/afastar. O quadro é exatamente o que aparece no site.";
-
-        modal.classList.add("is-open");
-        modal.setAttribute("aria-hidden", "false");
-        document.body.classList.add("crop-open");
-        resetCrop(1); // começa preenchendo o quadro, sem faixas brancas
-      };
-      image.onerror = () => reject(new Error("O arquivo selecionado não é uma imagem válida."));
-      image.src = reader.result;
-    };
-    reader.readAsDataURL(file);
+    reader.onload = () => { image.src = reader.result; };
+    reader.readAsDataURL(source);
   });
 }
 
@@ -479,8 +588,8 @@ function clampCropAxis(pos, drawSize, frameSize) {
 function clampCropPosition() {
   const canvas = document.getElementById("crop-canvas");
   if (!canvas || !cropState.image) return;
-  const drawWidth = cropState.image.naturalWidth * cropState.scale;
-  const drawHeight = cropState.image.naturalHeight * cropState.scale;
+  const drawWidth = cropState.srcW * cropState.scale;
+  const drawHeight = cropState.srcH * cropState.scale;
   cropState.x = clampCropAxis(cropState.x, drawWidth, canvas.width);
   cropState.y = clampCropAxis(cropState.y, drawHeight, canvas.height);
 }
@@ -490,8 +599,8 @@ function drawCrop() {
   if (!canvas || !cropState.image) return;
 
   const ctx = canvas.getContext("2d");
-  const width = cropState.image.naturalWidth * cropState.scale;
-  const height = cropState.image.naturalHeight * cropState.scale;
+  const width = cropState.srcW * cropState.scale;
+  const height = cropState.srcH * cropState.scale;
   const left = cropState.x - width / 2;
   const top = cropState.y - height / 2;
   const coversFrame = left <= 0.5 && top <= 0.5 && left + width >= canvas.width - 0.5 && top + height >= canvas.height - 0.5;
@@ -515,7 +624,7 @@ function drawCrop() {
   if (bgField) bgField.toggleAttribute("data-idle", coversFrame);
 
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(cropState.image, left, top, width, height);
+  ctx.drawImage(cropState.image, cropState.srcX, cropState.srcY, cropState.srcW, cropState.srcH, left, top, width, height);
 }
 
 function createCroppedBlob() {
@@ -534,12 +643,28 @@ function closeCropper(result) {
   const resolve = cropState.resolve;
   cropState.image = null;
   cropState.bgCanvas = null;
+  cropState.trimRect = null;
   cropState.resolve = null;
   cropState.pointers.clear();
   modal?.classList.remove("is-open");
   modal?.setAttribute("aria-hidden", "true");
   document.body.classList.remove("crop-open");
   if (resolve) resolve(result);
+}
+
+/* Abre o editor com `source` (File ou URL), envia o resultado e avisa quem chamou. */
+async function cropAndUpload(source, onUploaded, previewId, aspectRatio, outputType) {
+  showToast("Abra o editor para ajustar a imagem...");
+  const croppedBlob = await openCropper(source, aspectRatio, outputType);
+  if (!croppedBlob) return false;
+
+  showToast("Enviando imagem...");
+  const extension = outputType === "image/png" ? "png" : "jpg";
+  const url = await uploadImage(croppedBlob, `imagem-${Date.now()}.${extension}`);
+  onUploaded(url);
+  if (previewId) setImagePreview(previewId, url);
+  showToast("Imagem ajustada e enviada");
+  return true;
 }
 
 async function handleSingleImageUpload(input, onUploaded, previewId, aspectRatio = 4 / 3, outputType = "image/jpeg") {
@@ -550,22 +675,26 @@ async function handleSingleImageUpload(input, onUploaded, previewId, aspectRatio
     if (!file.type.startsWith("image/")) {
       throw new Error("Selecione um arquivo de imagem.");
     }
-
-    showToast("Abra o editor para ajustar a imagem...");
-    const croppedBlob = await openCropper(file, aspectRatio, outputType);
-    if (!croppedBlob) return;
-
-    showToast("Enviando imagem...");
-    const extension = outputType === "image/png" ? "png" : "jpg";
-    const url = await uploadImage(croppedBlob, `imagem-${Date.now()}.${extension}`);
-    onUploaded(url);
-    if (previewId) setImagePreview(previewId, url);
-    showToast("Imagem ajustada e enviada");
+    await cropAndUpload(file, onUploaded, previewId, aspectRatio, outputType);
   } catch (error) {
     console.error(error);
     showToast(error.message || "Erro ao enviar imagem");
   } finally {
     input.value = "";
+  }
+}
+
+/* Reabre uma foto que já está no site (ex.: a que ficou com faixas brancas). */
+async function readjustExistingImage(url, onUploaded, previewId, aspectRatio = 4 / 3, outputType = "image/jpeg") {
+  if (!url) {
+    showToast("Envie uma foto primeiro.");
+    return;
+  }
+  try {
+    await cropAndUpload(url, onUploaded, previewId, aspectRatio, outputType);
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Erro ao ajustar imagem");
   }
 }
 
@@ -733,7 +862,7 @@ function fillItemList(elementId, list) {
         <div class="field item-name-field"><label>Nome</label><input type="text" class="item-name-input" value="${escapeHTML(item.name)}" placeholder="Nome do produto"></div>
         <div class="field"><label>Preço (R$)</label><input type="number" min="0" step="0.5" class="item-price" value="${escapeHTML(item.price)}">${item.category === "pizza" ? `<small>Preço no tamanho base (o primeiro de "Tamanhos das pizzas"). Os outros tamanhos somam a diferença da tabela.</small>` : ""}</div>
         <div class="field"><label>Adicional na promoção (R$)</label><input type="number" min="0" step="0.5" class="item-promo-extra" value="${escapeHTML(item.promo_extra || 0)}"><small>Só é cobrado quando este produto é escolhido dentro de uma promoção (inteiro ou em metade). Na venda individual não tem efeito.</small></div>
-        <div class="field item-image-field"><label>Imagem do produto</label><input type="file" class="item-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="image-preview item-image-preview">${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
+        <div class="field item-image-field"><label>Imagem do produto</label><input type="file" class="item-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><button type="button" class="crop-secondary readjust-image-btn item-readjust-btn">Reajustar foto atual</button><div class="image-preview item-image-preview">${item.image ? `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
         <div class="field item-description-field"><label>Comentário / descrição</label><textarea class="item-description" placeholder="Ex.: Molho de tomate, mussarela e manjericão">${escapeHTML(item.description || "")}</textarea></div>
         <label class="item-featured-field"><input type="checkbox" class="item-featured" ${item.featured ? "checked" : ""}> Destacar em "Mais pedidos"</label>
         <button type="button" class="delete-item-btn" data-id="${escapeHTML(item.id)}">Excluir produto</button>
@@ -764,6 +893,16 @@ function fillItemList(elementId, list) {
       if (item) item.image = url;
     }, null, 4 / 3, "image/jpeg");
     const item = currentData.items.find((entry) => Number(entry.id) === id);
+    if (item?.image) {
+      row.querySelector(".item-image-preview").innerHTML = `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">`;
+      row.querySelector(".item-thumb").innerHTML = `<img src="${escapeHTML(item.image)}" alt="">`;
+    }
+  }));
+  container.querySelectorAll(".item-readjust-btn").forEach((button) => button.addEventListener("click", async () => {
+    const row = button.closest(".item-row");
+    const id = Number(row.dataset.id);
+    const item = currentData.items.find((entry) => Number(entry.id) === id);
+    await readjustExistingImage(item?.image, (url) => { if (item) item.image = url; }, null, 4 / 3, "image/jpeg");
     if (item?.image) {
       row.querySelector(".item-image-preview").innerHTML = `<img src="${escapeHTML(item.image)}" alt="${escapeHTML(item.name)}">`;
       row.querySelector(".item-thumb").innerHTML = `<img src="${escapeHTML(item.image)}" alt="">`;
@@ -943,7 +1082,7 @@ function fillPromoList(promotions, items) {
       <div class="field"><label>Nome da promoção</label><input type="text" class="promo-name" value="${escapeHTML(promo.name)}"></div>
       <div class="row">
         <div class="field"><label>Preço base (R$)</label><input type="number" min="0" step="0.5" class="promo-price" value="${escapeHTML(promo.price)}"></div>
-        <div class="field"><label>Imagem da promoção</label><input type="file" class="promo-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><div class="image-preview promo-image-preview">${promo.image ? `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
+        <div class="field"><label>Imagem da promoção</label><input type="file" class="promo-image-file" accept="image/png,image/jpeg,image/webp,image/gif"><button type="button" class="crop-secondary readjust-image-btn promo-readjust-btn">Reajustar foto atual</button><div class="image-preview promo-image-preview">${promo.image ? `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">` : `<span>Nenhuma imagem</span>`}</div></div>
       </div>
       <div class="field"><label>Descrição</label><textarea class="promo-description" placeholder="Ex.: Escolha os sabores das duas pizzas. Algumas pizzas podem ter adicional.">${escapeHTML(promo.description || "")}</textarea></div>
       <div class="promo-slots-header"><strong>Escolhas do cliente</strong><button type="button" class="add-slot-btn">+ Adicionar escolha</button></div>
@@ -958,6 +1097,12 @@ function fillPromoList(promotions, items) {
     const card = input.closest(".promo-admin-card");
     const promo = currentData.promotions.find((p) => String(p.id) === String(card.dataset.promoId));
     await handleSingleImageUpload(input, (url) => { if (promo) promo.image = url; }, null, 4 / 3, "image/jpeg");
+    if (promo?.image) card.querySelector(".promo-image-preview").innerHTML = `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">`;
+  }));
+  container.querySelectorAll(".promo-readjust-btn").forEach((button) => button.addEventListener("click", async () => {
+    const card = button.closest(".promo-admin-card");
+    const promo = currentData.promotions.find((p) => String(p.id) === String(card.dataset.promoId));
+    await readjustExistingImage(promo?.image, (url) => { if (promo) promo.image = url; }, null, 4 / 3, "image/jpeg");
     if (promo?.image) card.querySelector(".promo-image-preview").innerHTML = `<img src="${escapeHTML(promo.image)}" alt="${escapeHTML(promo.name)}">`;
   }));
 }

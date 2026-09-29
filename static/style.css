@@ -1595,6 +1595,25 @@ h2.panel-toggle-heading {
 
 .crop-bg-field[data-idle] { opacity: .45; }
 
+.crop-trim-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.crop-trim-field[hidden] { display: none; }
+
+.readjust-image-btn {
+  margin-top: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  align-self: flex-start;
+}
+
 .crop-bg-field select {
   font-family: var(--font-mono);
   font-size: 12px;
