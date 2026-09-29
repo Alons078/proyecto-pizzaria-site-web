@@ -993,6 +993,16 @@ def advance_order_stage(order_id, expected_stage):
         conn.close()
 
 
+def get_order_stage(order_id):
+    """Etapa atual do pedido (ou None se não existir)."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT stage FROM orders WHERE id = ?", (order_id,)).fetchone()
+        return row["stage"] if row else None
+    finally:
+        conn.close()
+
+
 def courier_pickup_order(order_id):
     """O entregador pegou o pedido pronto na cozinha: 'pronto' -> 'em_rota'.
     Só vale para pedidos de ENTREGA (retirada nunca passa por aqui) e é um
