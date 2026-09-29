@@ -6,6 +6,8 @@
 <title>Entregador · Rey Pizzaria</title>
 <link rel="manifest" href="/static/entregador.webmanifest">
 <meta name="theme-color" content="#1a1a1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Entregador">
 <link rel="apple-touch-icon" href="/static/entregador-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -45,10 +47,18 @@
         <small id="d-shift-since"></small>
       </div>
       <button type="button" class="d-close-btn" id="d-close-shift">🔒 Fechar entregas</button>
+      <div class="d-close-confirm" id="d-close-confirm" style="display:none;">
+        <p id="d-close-confirm-text"></p>
+        <div class="d-close-confirm-actions">
+          <button type="button" class="d-close-btn" id="d-close-yes">Sim, fechar</button>
+          <button type="button" class="item-toggle-all" id="d-close-no">Cancelar</button>
+        </div>
+      </div>
     </div>
     <div class="d-tools">
       <button type="button" class="item-toggle-all" id="d-sound">🔇 Toque para ativar o som</button>
       <button type="button" class="item-toggle-all" id="d-push" style="display:none;">🔔 Ativar avisos com o app fechado</button>
+      <button type="button" class="item-toggle-all" id="d-push-test" style="display:none;">🧪 Testar aviso (feche o app)</button>
     </div>
     <p class="field-hint" id="d-push-hint" style="display:none;"></p>
     <div class="d-alarm" id="d-alarm" style="display:none;">
