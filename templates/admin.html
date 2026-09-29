@@ -6,7 +6,7 @@
 <title>Painel · Rey Pizzaria</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=20260929b">
 </head>
 <body>
 
@@ -282,6 +282,7 @@
     <div class="crop-tools">
       <button type="button" class="crop-secondary" id="crop-fill-btn">Preencher quadro</button>
       <button type="button" class="crop-secondary" id="fit-image-btn">Imagem inteira</button>
+      <label class="crop-trim-field" id="crop-trim-field" hidden><input type="checkbox" id="crop-trim" checked> Remover bordas brancas</label>
       <label class="crop-bg-field" id="crop-bg-field" for="crop-bg">Fundo
         <select id="crop-bg"><option value="blur">Desfocado</option></select>
       </label>
@@ -295,6 +296,6 @@
 </div>
 
 <script src="/static/live.js"></script>
-<script src="/static/admin.js"></script>
+<script src="/static/admin.js?v=20260929b"></script>
 </body>
 </html>
