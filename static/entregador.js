@@ -24,6 +24,8 @@ let poller = null;
 let audioCtx = null;
 let wakeLock = null;
 let shiftBusy = false;
+let confirmId = null;         // pedido cujo "Confirmar entrega" está esperando o 2º toque
+let confirmTimer = null;
 
 function escapeHTML(value) {
   return String(value ?? "")
@@ -200,7 +202,12 @@ function orderHTML(order) {
     : "";
   const button = isReady
     ? `<button type="button" class="save-btn k-next d-pickup"${busyIds.has(order.id) ? " disabled" : ""}>🛵 Saí para entrega</button>`
-    : `<button type="button" class="save-btn k-next d-confirm"${busyIds.has(order.id) ? " disabled" : ""}>✅ Confirmar entrega</button>`;
+    : confirmId === order.id
+      ? `<div class="d-confirm-ask">
+           <button type="button" class="save-btn k-next d-confirm d-confirm-yes"${busyIds.has(order.id) ? " disabled" : ""}>✅ Sim, foi entregue</button>
+           <button type="button" class="item-toggle-all d-confirm-no"${busyIds.has(order.id) ? " disabled" : ""}>Cancelar</button>
+         </div>`
+      : `<button type="button" class="save-btn k-next d-confirm"${busyIds.has(order.id) ? " disabled" : ""}>✅ Confirmar entrega</button>`;
 
   return `
   <article class="k-order stage-${escapeHTML(order.stage)}${isOpen ? " is-open" : ""}" data-id="${order.id}">
@@ -243,7 +250,9 @@ function render() {
       card.querySelector(".k-head").setAttribute("aria-expanded", String(open));
       if (open) openIds.add(id); else openIds.delete(id);
     });
-    card.querySelector(".d-confirm")?.addEventListener("click", () => confirmDelivery(id));
+    card.querySelector(".d-confirm:not(.d-confirm-yes)")?.addEventListener("click", () => askDelivery(id));
+    card.querySelector(".d-confirm-yes")?.addEventListener("click", () => confirmDelivery(id));
+    card.querySelector(".d-confirm-no")?.addEventListener("click", () => cancelAskDelivery());
     card.querySelector(".d-pickup")?.addEventListener("click", () => pickupOrder(id));
   });
 }
@@ -271,6 +280,12 @@ async function loadOrders() {
     if (!data.ok) { setLive(false); return; }
     setLive(true);
     renderShift(data.shift);
+    // O admin fechou a noite enquanto o entregador estava conectado: volta ao
+    // login (é lá que uma noite nova começa) em vez de contar entregas no vazio.
+    if (data.courier_session && !data.shift) {
+      showLogin("A noite de entregas foi fechada pelo administrador. Para começar uma nova noite, entre de novo.");
+      return;
+    }
 
     const ids = data.orders.map((o) => o.id);
     const readyIds = data.orders.filter((o) => o.stage === "pronto").map((o) => o.id);
@@ -293,6 +308,8 @@ async function loadOrders() {
 
     knownIds = new Set(ids);
     [...openIds].forEach((id) => { if (!knownIds.has(id)) openIds.delete(id); });
+    if (confirmId !== null && !knownIds.has(confirmId)) confirmId = null;
+    clearStaleNotifications(readyIds);
 
     const signature = JSON.stringify(data.orders);
     if (signature !== lastSignature) {
@@ -326,10 +343,29 @@ async function pickupOrder(id) {
   }
 }
 
+// 1º toque em "Confirmar entrega": pede o 2º toque na própria tela (o
+// window.confirm() trava a tela e alguns celulares o bloqueiam). Se ele não
+// tocar de novo em 6 s, volta ao normal sozinho.
+function askDelivery(id) {
+  if (busyIds.has(id)) return;
+  confirmId = id;
+  clearTimeout(confirmTimer);
+  confirmTimer = setTimeout(cancelAskDelivery, 6000);
+  render();
+}
+
+function cancelAskDelivery() {
+  clearTimeout(confirmTimer);
+  if (confirmId === null) return;
+  confirmId = null;
+  render();
+}
+
 async function confirmDelivery(id) {
   const order = orders.find((o) => o.id === id);
   if (!order || busyIds.has(id)) return;
-  if (!window.confirm(`Confirmar que o pedido #${id} (${order.customer_name || "cliente"}) foi ENTREGUE?`)) return;
+  clearTimeout(confirmTimer);
+  confirmId = null;
 
   busyIds.add(id);
   render();
@@ -364,8 +400,10 @@ function setPushUI(state) {
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
   btn.style.display = state === "ask" ? "inline-block" : "none";
+  const testBtn = document.getElementById("d-push-test");
+  if (testBtn) testBtn.style.display = state === "on" ? "inline-block" : "none";
   const messages = {
-    on: "🔔 Avisos ativados: você recebe o aviso de pedido pronto mesmo com o navegador fechado.",
+    on: "🔔 Avisos ativados: você recebe o aviso de pedido pronto mesmo com o navegador fechado. O som do aviso é o do celular: deixe o volume alto, o modo silencioso desligado e o modo \"Não perturbe\" fora. Toque em \"Testar aviso\", feche o app e confira.",
     denied: "🔕 Avisos bloqueados. Libere as notificações deste site nas configurações do navegador para receber aviso com o app fechado.",
     unsupported: isIOS && !standalone
       ? "No iPhone: toque em Compartilhar → “Adicionar à Tela de Início” e abra o app por esse ícone para poder ativar os avisos."
@@ -417,17 +455,64 @@ async function setupPush(fromClick) {
   }
 }
 
-async function disablePush() {
+// Aviso de teste: o servidor manda um push em alguns segundos; o entregador
+// fecha o app e confere se o aviso chega.
+async function testPush() {
+  const btn = document.getElementById("d-push-test");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/entregador/push/testar", { method: "POST" });
+    if (res.status === 401) { showLogin(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) { showToast(data.error || "Não foi possível enviar o teste"); return; }
+    showToast(`Feche o app agora — o aviso chega em ${data.delay || 12} s`);
+  } catch (error) {
+    console.error(error);
+    showToast("Sem conexão — tente de novo");
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 15000);
+  }
+}
+
+// Tira da bandeja do celular os avisos de "pronto" de pedidos que já saíram.
+async function clearStaleNotifications(readyIds) {
+  try {
+    if (!("serviceWorker" in navigator)) return;
+    const reg = await navigator.serviceWorker.getRegistration("/entregador-sw.js");
+    if (!reg) return;
+    const keep = new Set(readyIds.map(String));
+    (await reg.getNotifications()).forEach((n) => {
+      const d = n.data || {};
+      if (!d.test && !keep.has(String(d.order_id))) n.close();
+    });
+  } catch (_) { /* sem problema */ }
+}
+
+// Endpoint do aviso push deste aparelho ("" se não houver).
+async function currentPushEndpoint() {
+  try {
+    if (!("serviceWorker" in navigator)) return "";
+    const reg = await navigator.serviceWorker.getRegistration("/entregador-sw.js");
+    const sub = reg && (await reg.pushManager.getSubscription());
+    return sub ? sub.endpoint : "";
+  } catch (_) { return ""; }
+}
+
+// notifyServer=false: quando a sessão já foi encerrada (fechar entregas) o
+// servidor recusaria a chamada (401); nesse caso ele já apagou o aparelho.
+async function disablePush(notifyServer = true) {
   try {
     if (!("serviceWorker" in navigator)) return;
     const reg = await navigator.serviceWorker.getRegistration("/entregador-sw.js");
     const sub = reg && (await reg.pushManager.getSubscription());
     if (!sub) return;
-    await fetch("/api/entregador/push/unsubscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint: sub.endpoint }),
-    }).catch(() => {});
+    if (notifyServer) {
+      await fetch("/api/entregador/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      }).catch(() => {});
+    }
     await sub.unsubscribe();
   } catch (_) { /* sem problema */ }
 }
@@ -441,31 +526,62 @@ if ("serviceWorker" in navigator) {
 
 /* ---------- fechar a noite de entregas ---------- */
 
-async function closeShift() {
+function hideCloseConfirm() {
+  const box = document.getElementById("d-close-confirm");
+  if (box) box.style.display = "none";
+}
+
+// 1º toque: mostra a confirmação na própria tela (o confirm() do navegador
+// trava a tela e alguns celulares/apps instalados o bloqueiam sem avisar).
+function askCloseShift() {
   if (shiftBusy) return;
+  const box = document.getElementById("d-close-confirm");
+  if (box.style.display !== "none") { hideCloseConfirm(); return; }   // segundo toque = cancela
   const pending = orders.length;
   const count = document.getElementById("d-shift-count").textContent;
-  const warn = pending
-    ? `\n\nAtenção: ainda há ${pending} pedido(s) na lista. Se você entregar depois, contam na próxima noite.`
-    : "";
-  if (!window.confirm(`Fechar as entregas de hoje?\n\nTotal desta noite: ${count} entrega(s). O total vai para o administrador e a contagem é encerrada.${warn}`)) return;
+  document.getElementById("d-close-confirm-text").textContent =
+    `Fechar as entregas de hoje? Total desta noite: ${count} entrega(s). O total vai para o administrador e a contagem é encerrada.` +
+    (pending ? ` Atenção: ainda há ${pending} pedido(s) na lista. Se você entregar depois, contam na próxima noite.` : "");
+  box.style.display = "block";
+}
 
+// 2º toque ("Sim, fechar"): fecha de verdade.
+async function closeShift() {
+  if (shiftBusy) return;
   shiftBusy = true;
-  const btn = document.getElementById("d-close-shift");
-  btn.disabled = true;
+  const openBtn = document.getElementById("d-close-shift");
+  const yesBtn = document.getElementById("d-close-yes");
+  openBtn.disabled = true;
+  yesBtn.disabled = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);   // rede pendurada não deixa o botão travado
   try {
-    const res = await fetch("/api/entregador/turno/fechar", { method: "POST" });
+    const endpoint = await currentPushEndpoint();
+    const res = await fetch("/api/entregador/turno/fechar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+      signal: controller.signal,
+    });
     if (res.status === 401) { showLogin(); return; }
     const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.already_closed) {   // noite já fechada em outro lugar: sai em vez de ficar preso
+      await disablePush(false);
+      showLogin(data.error);
+      return;
+    }
     if (!res.ok || !data.ok) { showToast(data.error || "Não foi possível fechar as entregas"); return; }
-    await disablePush();
+    await disablePush(false);   // a sessão já acabou: só cancela o aviso neste aparelho
     showLogin(`✅ Entregas fechadas: ${data.shift.deliveries} entrega(s) nesta noite. O total já está no painel do administrador. Para começar uma nova noite, entre de novo.`);
   } catch (error) {
     console.error(error);
     showToast("Sem conexão — tente de novo");
   } finally {
+    clearTimeout(timeout);
     shiftBusy = false;
-    btn.disabled = false;
+    openBtn.disabled = false;
+    yesBtn.disabled = false;
+    hideCloseConfirm();
   }
 }
 
@@ -475,6 +591,9 @@ function showLogin(message) {
   if (poller) { poller.stop(); poller = null; }
   alarmIds.clear();
   updateAlarmBanner();
+  hideCloseConfirm();
+  clearTimeout(confirmTimer);
+  confirmId = null;
   knownReady = null;
   const msg = document.getElementById("d-closed-msg");
   msg.textContent = message || "";
@@ -534,12 +653,15 @@ document.getElementById("d-logout").addEventListener("click", async () => {
   await fetch("/api/entregador/logout", { method: "POST" }).catch(() => {});
   showLogin();
 });
-document.getElementById("d-close-shift").addEventListener("click", closeShift);
+document.getElementById("d-close-shift").addEventListener("click", askCloseShift);
+document.getElementById("d-close-yes").addEventListener("click", closeShift);
+document.getElementById("d-close-no").addEventListener("click", hideCloseConfirm);
 document.getElementById("d-sound").addEventListener("click", async () => {
   const ok = await unlockAudio();
   if (ok) playAlarmSound();
 });
 document.getElementById("d-push").addEventListener("click", () => setupPush(true));
+document.getElementById("d-push-test").addEventListener("click", testPush);
 document.getElementById("d-alarm-stop").addEventListener("click", () => {
   alarmIds.clear();
   alarmPlays = 0;

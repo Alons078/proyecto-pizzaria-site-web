@@ -201,60 +201,142 @@ async function uploadImage(file, filename = "imagem.jpg") {
   return result.url;
 }
 
+/* ---------- editor de recorte de imagens ----------
+ * O quadro tem exatamente a proporção usada no site (4:3 nos produtos e
+ * promoções), então o que aparece aqui é o que o cliente vê.
+ * - Começa preenchendo o quadro (sem faixas brancas).
+ * - Arrastar move; roda do mouse / pinça / controle de zoom aproximam ou afastam.
+ * - Dá para afastar até ver a imagem inteira; a sobra é preenchida com
+ *   fundo desfocado (padrão), branco, preto ou transparente (só PNG).
+ */
 const cropState = {
   image: null,
   aspectRatio: 4 / 3,
   outputType: "image/jpeg",
+  bgMode: "blur",
+  bgCanvas: null,
+  coverScale: 1,   // escala que preenche o quadro (zoom = 1)
+  minZoom: 1,      // zoom mínimo = imagem inteira visível
+  maxZoom: 4,
   zoom: 1,
+  scale: 1,
   x: 0,
   y: 0,
-  baseScale: 1,
-  scale: 1,
-  dragging: false,
+  pointers: new Map(),
   startX: 0,
   startY: 0,
   startImageX: 0,
   startImageY: 0,
+  pinchDistance: 0,
+  pinchZoom: 1,
   resolve: null
 };
+
+function cropCanvasPoint(clientX, clientY) {
+  const canvas = document.getElementById("crop-canvas");
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (canvas.width / rect.width),
+    y: (clientY - rect.top) * (canvas.height / rect.height)
+  };
+}
+
+function setCropZoom(value, anchorX, anchorY) {
+  const canvas = document.getElementById("crop-canvas");
+  if (!canvas || !cropState.image || !Number.isFinite(value)) return;
+  const zoom = Math.min(cropState.maxZoom, Math.max(cropState.minZoom, value));
+  const newScale = cropState.coverScale * zoom;
+  const factor = newScale / cropState.scale;
+  cropState.x = anchorX + (cropState.x - anchorX) * factor;
+  cropState.y = anchorY + (cropState.y - anchorY) * factor;
+  cropState.zoom = zoom;
+  cropState.scale = newScale;
+  clampCropPosition();
+  syncCropControls();
+  drawCrop();
+}
+
+function resetCrop(zoom) {
+  const canvas = document.getElementById("crop-canvas");
+  if (!canvas || !cropState.image) return;
+  cropState.zoom = zoom;
+  cropState.scale = cropState.coverScale * zoom;
+  cropState.x = canvas.width / 2;
+  cropState.y = canvas.height / 2;
+  clampCropPosition();
+  syncCropControls();
+  drawCrop();
+}
+
+function syncCropControls() {
+  const zoomInput = document.getElementById("crop-zoom");
+  const zoomValue = document.getElementById("crop-zoom-value");
+  if (zoomInput) zoomInput.value = String(cropState.zoom);
+  if (zoomValue) zoomValue.textContent = `${Math.round(cropState.zoom * 100)}%`;
+}
 
 function setupCropper() {
   const modal = document.getElementById("crop-modal");
   const canvas = document.getElementById("crop-canvas");
   const zoom = document.getElementById("crop-zoom");
-  const zoomValue = document.getElementById("crop-zoom-value");
   const save = document.getElementById("crop-save");
   const cancel = document.getElementById("crop-cancel");
   const cancelBottom = document.getElementById("crop-cancel-bottom");
+  const fillButton = document.getElementById("crop-fill-btn");
+  const fitButton = document.getElementById("fit-image-btn");
+  const bgSelect = document.getElementById("crop-bg");
 
   if (!modal || !canvas || !zoom || !save || !cancel || !cancelBottom) return;
 
   zoom.addEventListener("input", () => {
-    const previousScale = cropState.scale;
-    cropState.zoom = Number(zoom.value);
-    cropState.scale = cropState.baseScale * cropState.zoom;
-
-    // Mantém o ponto central visual o mais estável possível ao aplicar o zoom.
-    const factor = cropState.scale / previousScale;
-    cropState.x = canvas.width / 2 + (cropState.x - canvas.width / 2) * factor;
-    cropState.y = canvas.height / 2 + (cropState.y - canvas.height / 2) * factor;
-    clampCropPosition();
-    zoomValue.textContent = `${Math.round(cropState.zoom * 100)}%`;
-    drawCrop();
+    setCropZoom(Number(zoom.value), canvas.width / 2, canvas.height / 2);
   });
+
+  // Roda do mouse: zoom em torno do ponteiro.
+  canvas.addEventListener("wheel", (event) => {
+    if (!cropState.image) return;
+    event.preventDefault();
+    const point = cropCanvasPoint(event.clientX, event.clientY);
+    setCropZoom(cropState.zoom * Math.exp(-event.deltaY * 0.0015), point.x, point.y);
+  }, { passive: false });
+
+  const beginDrag = (pointer) => {
+    cropState.startX = pointer.x;
+    cropState.startY = pointer.y;
+    cropState.startImageX = cropState.x;
+    cropState.startImageY = cropState.y;
+  };
+
+  const pinchInfo = () => {
+    const [a, b] = Array.from(cropState.pointers.values());
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, midX: (a.x + b.x) / 2, midY: (a.y + b.y) / 2 };
+  };
 
   canvas.addEventListener("pointerdown", (event) => {
     if (!cropState.image) return;
-    cropState.dragging = true;
-    cropState.startX = event.clientX;
-    cropState.startY = event.clientY;
-    cropState.startImageX = cropState.x;
-    cropState.startImageY = cropState.y;
+    cropState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.setPointerCapture?.(event.pointerId);
+    if (cropState.pointers.size === 1) {
+      beginDrag({ x: event.clientX, y: event.clientY });
+    } else if (cropState.pointers.size === 2) {
+      const info = pinchInfo();
+      cropState.pinchDistance = info.dist;
+      cropState.pinchZoom = cropState.zoom;
+    }
   });
 
   canvas.addEventListener("pointermove", (event) => {
-    if (!cropState.dragging) return;
+    if (!cropState.pointers.has(event.pointerId)) return;
+    cropState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (cropState.pointers.size >= 2) {
+      // Pinça: zoom em torno do ponto médio entre os dois dedos.
+      const info = pinchInfo();
+      const point = cropCanvasPoint(info.midX, info.midY);
+      setCropZoom(cropState.pinchZoom * (info.dist / cropState.pinchDistance), point.x, point.y);
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const factorX = canvas.width / rect.width;
     const factorY = canvas.height / rect.height;
@@ -264,28 +346,29 @@ function setupCropper() {
     drawCrop();
   });
 
-  const stopDrag = () => { cropState.dragging = false; };
-  canvas.addEventListener("pointerup", stopDrag);
-  canvas.addEventListener("pointercancel", stopDrag);
-  canvas.addEventListener("pointerleave", stopDrag);
+  const endPointer = (event) => {
+    cropState.pointers.delete(event.pointerId);
+    // Se sobrou um dedo depois da pinça, recomeça o arraste dele sem "pulo".
+    if (cropState.pointers.size === 1) {
+      const [remaining] = Array.from(cropState.pointers.values());
+      beginDrag(remaining);
+    }
+  };
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
 
   cancel.addEventListener("click", () => closeCropper(null));
   cancelBottom.addEventListener("click", () => closeCropper(null));
-
-  const fitButton = document.getElementById("fit-image-btn");
-  fitButton?.addEventListener("click", () => {
-    if (!cropState.image) return;
-    cropState.zoom = 1;
-    cropState.scale = cropState.baseScale;
-    cropState.x = canvas.width / 2;
-    cropState.y = canvas.height / 2;
-    zoom.value = "1";
-    zoomValue.textContent = "100%";
-    clampCropPosition();
-    drawCrop();
-  });
   modal.addEventListener("click", (event) => {
     if (event.target === modal) closeCropper(null);
+  });
+
+  fillButton?.addEventListener("click", () => resetCrop(1));
+  fitButton?.addEventListener("click", () => resetCrop(cropState.minZoom));
+
+  bgSelect?.addEventListener("change", () => {
+    cropState.bgMode = bgSelect.value;
+    drawCrop();
   });
 
   save.addEventListener("click", async () => {
@@ -303,6 +386,23 @@ function setupCropper() {
   });
 }
 
+/* Versão minúscula da foto, esticada depois: dá um efeito de desfoque
+ * que funciona em qualquer navegador (inclusive iPhone). */
+function buildBlurBackground(image, aspectRatio) {
+  const bw = 48;
+  const bh = Math.max(1, Math.round(bw / aspectRatio));
+  const small = document.createElement("canvas");
+  small.width = bw;
+  small.height = bh;
+  const ctx = small.getContext("2d");
+  const s = Math.max(bw / image.naturalWidth, bh / image.naturalHeight);
+  const dw = image.naturalWidth * s;
+  const dh = image.naturalHeight * s;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
+  return small;
+}
+
 function openCropper(file, aspectRatio = 4 / 3, outputType = "image/jpeg") {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -313,35 +413,51 @@ function openCropper(file, aspectRatio = 4 / 3, outputType = "image/jpeg") {
         const modal = document.getElementById("crop-modal");
         const canvas = document.getElementById("crop-canvas");
         const zoom = document.getElementById("crop-zoom");
-        const zoomValue = document.getElementById("crop-zoom-value");
         const title = document.getElementById("crop-title");
         const help = document.getElementById("crop-help");
+        const bgSelect = document.getElementById("crop-bg");
 
         cropState.image = image;
         cropState.aspectRatio = aspectRatio;
         cropState.outputType = outputType;
-        cropState.zoom = 1;
         cropState.resolve = resolve;
+        cropState.pointers.clear();
 
         // Saída grande o suficiente para não perder qualidade no cardápio.
         canvas.width = aspectRatio === 16 / 9 ? 1200 : aspectRatio === 1 ? 900 : 1200;
         canvas.height = Math.round(canvas.width / aspectRatio);
 
-        cropState.baseScale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-        cropState.scale = cropState.baseScale;
-        cropState.x = canvas.width / 2;
-        cropState.y = canvas.height / 2;
+        const coverScale = Math.max(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+        const containScale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+        cropState.coverScale = coverScale;
+        cropState.minZoom = Math.floor((containScale / coverScale) * 100) / 100 || 0.1;
+        cropState.maxZoom = 4;
+        cropState.bgCanvas = buildBlurBackground(image, aspectRatio);
 
-        zoom.value = "1";
-        zoomValue.textContent = "100%";
+        // Fundo para a sobra quando a imagem não preenche o quadro.
+        const isPng = outputType === "image/png";
+        cropState.bgMode = isPng ? "transparent" : "blur";
+        if (bgSelect) {
+          bgSelect.innerHTML = [
+            ["blur", "Desfocado"],
+            ["white", "Branco"],
+            ["black", "Preto"],
+            ...(isPng ? [["transparent", "Transparente"]] : [])
+          ].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+          bgSelect.value = cropState.bgMode;
+        }
+
+        zoom.min = String(cropState.minZoom);
+        zoom.max = String(cropState.maxZoom);
+        zoom.step = "0.01";
+
         title.textContent = aspectRatio === 16 / 9 ? "Ajustar imagem do post" : aspectRatio === 1 ? "Ajustar logo" : "Ajustar imagem do produto";
-        help.textContent = "A imagem começa ajustada para aparecer inteira. Você pode afastar, aproximar ou arrastar para escolher o resultado.";
+        help.textContent = "Arraste a foto para posicionar. Use a roda do mouse, a pinça ou o zoom para aproximar/afastar. O quadro é exatamente o que aparece no site.";
 
         modal.classList.add("is-open");
         modal.setAttribute("aria-hidden", "false");
         document.body.classList.add("crop-open");
-        clampCropPosition();
-        drawCrop();
+        resetCrop(1); // começa preenchendo o quadro, sem faixas brancas
       };
       image.onerror = () => reject(new Error("O arquivo selecionado não é uma imagem válida."));
       image.src = reader.result;
@@ -350,32 +466,23 @@ function openCropper(file, aspectRatio = 4 / 3, outputType = "image/jpeg") {
   });
 }
 
+function clampCropAxis(pos, drawSize, frameSize) {
+  const half = drawSize / 2;
+  if (drawSize >= frameSize) {
+    // Imagem maior que o quadro: não deixa aparecer vazio nas bordas.
+    return Math.min(half, Math.max(frameSize - half, pos));
+  }
+  // Imagem menor que o quadro: pode ser posicionada livremente, mas inteira dentro.
+  return Math.min(frameSize - half, Math.max(half, pos));
+}
+
 function clampCropPosition() {
   const canvas = document.getElementById("crop-canvas");
   if (!canvas || !cropState.image) return;
-
   const drawWidth = cropState.image.naturalWidth * cropState.scale;
   const drawHeight = cropState.image.naturalHeight * cropState.scale;
-  const halfW = drawWidth / 2;
-  const halfH = drawHeight / 2;
-
-  // Quando a imagem é menor que o quadro, ela pode ficar inteira visível.
-  // Nesse caso, mantemos o centro para evitar que ela saia da área de edição.
-  if (drawWidth <= canvas.width) {
-    cropState.x = canvas.width / 2;
-  } else {
-    const minX = canvas.width - halfW;
-    const maxX = halfW;
-    cropState.x = Math.min(maxX, Math.max(minX, cropState.x));
-  }
-
-  if (drawHeight <= canvas.height) {
-    cropState.y = canvas.height / 2;
-  } else {
-    const minY = canvas.height - halfH;
-    const maxY = halfH;
-    cropState.y = Math.min(maxY, Math.max(minY, cropState.y));
-  }
+  cropState.x = clampCropAxis(cropState.x, drawWidth, canvas.width);
+  cropState.y = clampCropAxis(cropState.y, drawHeight, canvas.height);
 }
 
 function drawCrop() {
@@ -383,19 +490,32 @@ function drawCrop() {
   if (!canvas || !cropState.image) return;
 
   const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
   const width = cropState.image.naturalWidth * cropState.scale;
   const height = cropState.image.naturalHeight * cropState.scale;
-  ctx.drawImage(
-    cropState.image,
-    cropState.x - width / 2,
-    cropState.y - height / 2,
-    width,
-    height
-  );
+  const left = cropState.x - width / 2;
+  const top = cropState.y - height / 2;
+  const coversFrame = left <= 0.5 && top <= 0.5 && left + width >= canvas.width - 0.5 && top + height >= canvas.height - 0.5;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!coversFrame) {
+    if (cropState.bgMode === "white" || cropState.bgMode === "black") {
+      ctx.fillStyle = cropState.bgMode === "white" ? "#ffffff" : "#000000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else if (cropState.bgMode === "blur" || cropState.outputType !== "image/png") {
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(cropState.bgCanvas, 0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.30)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    // "transparent" (PNG): deixa o canvas vazio.
+  }
+
+  const bgField = document.getElementById("crop-bg-field");
+  if (bgField) bgField.toggleAttribute("data-idle", coversFrame);
+
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(cropState.image, left, top, width, height);
 }
 
 function createCroppedBlob() {
@@ -404,7 +524,7 @@ function createCroppedBlob() {
     canvas.toBlob(
       (blob) => blob ? resolve(blob) : reject(new Error("Não foi possível gerar o recorte.")),
       cropState.outputType,
-      cropState.outputType === "image/png" ? undefined : 0.90
+      cropState.outputType === "image/png" ? undefined : 0.92
     );
   });
 }
@@ -413,8 +533,9 @@ function closeCropper(result) {
   const modal = document.getElementById("crop-modal");
   const resolve = cropState.resolve;
   cropState.image = null;
+  cropState.bgCanvas = null;
   cropState.resolve = null;
-  cropState.dragging = false;
+  cropState.pointers.clear();
   modal?.classList.remove("is-open");
   modal?.setAttribute("aria-hidden", "true");
   document.body.classList.remove("crop-open");
