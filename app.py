@@ -33,6 +33,7 @@ import secrets
 import json
 import base64
 import threading
+import time
 
 import db
 import delivery_fee
@@ -216,6 +217,97 @@ def require_employee(view):
     return wrapped
 
 
+# ---------- proteção contra excesso de requisições (plano de 7 dólares) ----------
+# O servidor roda com 1 worker e poucos threads (veja o Procfile), num plano
+# pequeno do Render. Poucas dezenas de requisições rápidas na mesma rota já
+# bastam para deixar o site lento ou travado pra todo mundo. As proteções
+# abaixo são só sobre "quantas vezes o MESMO visitante pode bater na MESMA
+# rota" — não impedem uma enchente vinda de muitos IPs diferentes ao mesmo
+# tempo (isso é proteção de rede/infraestrutura, fora do alcance do código
+# da aplicação), mas cobrem os dois casos mais prováveis aqui: alguém
+# tentando adivinhar uma senha por tentativa e erro, e um cliente (ou bug no
+# navegador) mandando pedidos repetidos rápido demais.
+#
+# Fica tudo em memória (sem Redis, sem tabela nova): como o gunicorn roda
+# com 1 worker só, um dicionário comum já é compartilhado por todas as
+# requisições do processo.
+
+_rate_lock = threading.Lock()
+_rate_buckets = {}   # "chave:ip" -> [timestamps das últimas requisições]
+_rate_hits_since_cleanup = 0
+
+
+def _client_ip():
+    """IP de quem fez a requisição. O Render fica atrás de um proxy, então o
+    IP real vem no cabeçalho X-Forwarded-For (o primeiro da lista)."""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or "desconhecido"
+
+
+def _rate_limited(key, max_hits, window_seconds):
+    """True se `key` já bateu `max_hits` vezes nos últimos `window_seconds`
+    segundos (e registra esta tentativa). Faz uma limpeza leve de vez em
+    quando para o dicionário não crescer pra sempre."""
+    global _rate_hits_since_cleanup
+    now = time.monotonic()
+    cutoff = now - window_seconds
+    with _rate_lock:
+        hits = _rate_buckets.setdefault(key, [])
+        while hits and hits[0] < cutoff:
+            hits.pop(0)
+        if len(hits) >= max_hits:
+            return True
+        hits.append(now)
+
+        _rate_hits_since_cleanup += 1
+        if _rate_hits_since_cleanup >= 500:
+            _rate_hits_since_cleanup = 0
+            for stale_key in [k for k, v in _rate_buckets.items() if not v]:
+                del _rate_buckets[stale_key]
+    return False
+
+
+def rate_limit(name, max_hits, window_seconds):
+    """Decorator: no máximo `max_hits` requisições por IP a cada
+    `window_seconds` segundos, nesta rota. Passa direto quem está dentro do
+    limite; devolve 429 (\"muitas tentativas\") pra quem estourou."""
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            key = f"{name}:{_client_ip()}"
+            if _rate_limited(key, max_hits, window_seconds):
+                return jsonify({
+                    "ok": False,
+                    "error": "Muitas tentativas em pouco tempo. Espere um instante e tente de novo.",
+                }), 429
+            return view(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+# Teto geral e mais folgado pra qualquer rota /api/ que não tenha um limite
+# próprio (rede de segurança contra uma rota esquecida ser martelada). Os
+# números abaixo dão bastante folga pra uso normal: o polling mais rápido do
+# site (painel da cozinha) já é só 1 requisição a cada 3 segundos.
+API_GENERAL_MAX_HITS = int(os.environ.get("API_RATE_LIMIT_MAX", "180"))
+API_GENERAL_WINDOW_S = int(os.environ.get("API_RATE_LIMIT_WINDOW_S", "60"))
+
+
+@app.before_request
+def _api_general_rate_limit():
+    if not request.path.startswith("/api/"):
+        return None
+    key = f"api:{_client_ip()}"
+    if _rate_limited(key, API_GENERAL_MAX_HITS, API_GENERAL_WINDOW_S):
+        return jsonify({
+            "ok": False,
+            "error": "Muitas requisições em pouco tempo. Espere um instante e tente de novo.",
+        }), 429
+    return None
+
+
 # ---------- páginas ----------
 
 @app.route("/")
@@ -231,6 +323,7 @@ def admin_login():
 
 
 @app.route("/admin/login", methods=["POST"])
+@rate_limit("admin_login", max_hits=8, window_seconds=300)
 def admin_login_submit():
     password = (request.form.get("password") or "").strip()
     if ADMIN_PASSWORD and password and hmac.compare_digest(password, ADMIN_PASSWORD):
@@ -347,6 +440,7 @@ def get_promotion(promo_id):
 # ---------- taxa de entrega por zona ----------
 
 @app.route("/api/calcular-tarifa", methods=["POST"])
+@rate_limit("calcular_tarifa", max_hits=40, window_seconds=300)
 def calcular_tarifa():
     """Recebe {address} e devolve {fee, distance_km, cached}. Resposta na
     hora: é só conferir se o texto cita uma zona com taxa fixa conhecida."""
@@ -366,6 +460,7 @@ MAX_ORDER_ITEMS = 40
 
 
 @app.route("/api/pedidos", methods=["POST"])
+@rate_limit("create_order", max_hits=15, window_seconds=600)
 def create_order():
     """O carrinho do cliente manda o pedido pra cá antes de abrir o
     WhatsApp, só para que o agente de impressão da pizzaria possa
@@ -493,6 +588,7 @@ CANCEL_TOO_LATE_MESSAGE = (
 
 
 @app.route("/api/pedido/<token>/cancelar", methods=["POST"])
+@rate_limit("cancel_order", max_hits=10, window_seconds=600)
 def customer_cancel_order(token):
     """O cliente cancela o próprio pedido (quem tem o código secreto). Só
     funciona enquanto a cozinha ainda não iniciou o preparo."""
@@ -507,6 +603,7 @@ def customer_cancel_order(token):
 
 
 @app.route("/api/meus-pedidos", methods=["POST"])
+@rate_limit("my_orders", max_hits=20, window_seconds=600)
 def my_orders():
     """'Meus pedidos': o navegador do cliente guarda os códigos dos pedidos
     que ele fez e manda a lista para cá. Não existe login de cliente — só
@@ -580,6 +677,7 @@ def entregador():
 
 
 @app.route("/api/entregador/login", methods=["POST"])
+@rate_limit("courier_login", max_hits=8, window_seconds=300)
 def courier_login():
     """Login do entregador, com a senha que o admin define em /admin
     ("Acesso do entregador"). Não usa a senha dos turnos."""
@@ -624,7 +722,14 @@ def courier_orders():
         order["route_min"] = minutes if order["stage"] == "em_rota" else None
         order["ready_min"] = minutes if order["stage"] == "pronto" else None
         orders.append(order)
-    return jsonify({"ok": True, "orders": orders, "shift": db.get_open_courier_shift()})
+    return jsonify({
+        "ok": True,
+        "orders": orders,
+        "shift": db.get_open_courier_shift(),
+        # True só para a sessão do ENTREGADOR (não para o admin espiando): a tela usa
+        # isto para voltar ao login se o admin fechou a noite enquanto ele estava conectado.
+        "courier_session": _courier_session_valid(),
+    })
 
 
 @app.route("/api/entregador/pedidos/<int:order_id>/sair", methods=["POST"])
@@ -643,6 +748,10 @@ def courier_deliver_order(order_id):
     """O entregador confirma a entrega: o pedido passa de 'em_rota' para
     'entregue' (e entra na contagem da noite). A cozinha e o cliente veem a
     mudança sozinhos (as telas se atualizam a cada poucos segundos)."""
+    # Se o admin fechou a noite e o entregador ainda não voltou ao login, esta
+    # entrega abre uma noite nova em vez de ficar sem contar.
+    if _courier_session_valid():
+        db.open_courier_shift(_now_store_iso())
     updated = db.advance_order_stage(order_id, "em_rota")
     if not updated:
         return jsonify({"ok": False, "error": "Esse pedido já foi confirmado ou não está mais em rota."}), 409
@@ -677,10 +786,22 @@ def courier_shift_close():
     """O entregador toca em "Fechar entregas": a noite é fechada e o total vai
     para o admin. A sessão do entregador é encerrada (na próxima noite, ao
     entrar de novo, começa uma contagem nova)."""
+    body = request.get_json(silent=True) or {}
+    endpoint = str(body.get("endpoint") or "")
     closed = db.close_courier_shift(_now_store_iso())
-    if not closed:
-        return jsonify({"ok": False, "error": "Não há entregas abertas para fechar."}), 409
+    # O aparelho é esquecido aqui, enquanto a sessão ainda vale (depois do
+    # logout a chamada de "unsubscribe" já daria 401 e o aviso ficaria salvo).
+    if endpoint:
+        db.remove_push_sub(endpoint)
+    # A sessão termina sempre: se a noite já tinha sido fechada (pelo admin ou
+    # em outro aparelho) o entregador não fica preso numa tela sem saída.
     session.pop("courier_pw", None)
+    if not closed:
+        return jsonify({
+            "ok": False,
+            "already_closed": True,
+            "error": "As entregas já tinham sido fechadas (pelo administrador ou em outro aparelho). Para começar uma nova noite, entre de novo.",
+        }), 409
     return jsonify({"ok": True, "shift": closed})
 
 
@@ -731,17 +852,51 @@ def _vapid_subject():
     return f"mailto:admin@{host}"
 
 
+PUSH_REPEAT_EVERY_S = 45   # enquanto o pedido continuar "pronto", repete o aviso
+PUSH_REPEAT_MAX = 6        # no máximo 6 lembretes (~4,5 min)
+PUSH_TEST_DELAY_S = 12     # tempo para o entregador fechar o app antes do aviso de teste
+
+
+def _send_push_now(payload, private_key, subject):
+    """Envia agora o aviso para todos os aparelhos salvos (a lista é lida a cada
+    envio, então aparelhos que deixaram de valer somem sozinhos)."""
+    for sub_json in db.list_push_subs():
+        try:
+            sub = json.loads(sub_json)
+            webpush(
+                subscription_info=sub,
+                data=payload,
+                vapid_private_key=private_key,
+                vapid_claims={"sub": subject},
+                ttl=900,
+                headers={"Urgency": "high"},
+                timeout=10,
+            )
+        except WebPushException as error:
+            status = getattr(getattr(error, "response", None), "status_code", None)
+            if status in (404, 410):   # aparelho não recebe mais: esquece
+                try:
+                    db.remove_push_sub(json.loads(sub_json).get("endpoint", ""))
+                except Exception:
+                    pass
+            else:
+                print("push: falha ao enviar:", error)
+        except Exception as error:
+            print("push: falha ao enviar:", error)
+
+
 def _notify_courier_ready(order):
     """Manda o aviso "pedido pronto" para o celular do entregador. Roda numa
     thread à parte para o clique da cozinha não esperar o serviço de push, e
-    só envia se o entregador tem uma noite aberta (ou seja, está trabalhando)."""
+    só envia se o entregador tem uma noite aberta (ou seja, está trabalhando).
+    Enquanto o pedido continuar "pronto", repete o aviso (o toque do celular é
+    curto: o lembrete faz o alarme insistir até ele pegar o pedido)."""
     if webpush is None:
         return
     try:
         if not db.get_open_courier_shift():
             return
-        subs = db.list_push_subs()
-        if not subs:
+        if not db.list_push_subs():
             return
         private_key, _ = _vapid_keys()
     except Exception as error:
@@ -756,28 +911,22 @@ def _notify_courier_ready(order):
         "order_id": order["id"],
     }, ensure_ascii=False)
     subject = _vapid_subject()
+    order_id = order["id"]
 
     def send_all():
-        for sub_json in subs:
+        _send_push_now(payload, private_key, subject)
+        for _ in range(PUSH_REPEAT_MAX):
+            time.sleep(PUSH_REPEAT_EVERY_S)
             try:
-                sub = json.loads(sub_json)
-                webpush(
-                    subscription_info=sub,
-                    data=payload,
-                    vapid_private_key=private_key,
-                    vapid_claims={"sub": subject},
-                    ttl=900,
-                    headers={"Urgency": "high"},
-                    timeout=10,
-                )
-            except WebPushException as error:
-                status = getattr(getattr(error, "response", None), "status_code", None)
-                if status in (404, 410):   # aparelho não recebe mais: esquece
-                    db.remove_push_sub(sub.get("endpoint", ""))
-                else:
-                    print("push: falha ao enviar:", error)
+                # Para de insistir quando ele pegou o pedido, a noite fechou ou não há aparelhos.
+                if db.get_order_stage(order_id) != "pronto":
+                    return
+                if not db.get_open_courier_shift() or not db.list_push_subs():
+                    return
             except Exception as error:
-                print("push: falha ao enviar:", error)
+                print("push: lembrete cancelado:", error)
+                return
+            _send_push_now(payload, private_key, subject)
 
     threading.Thread(target=send_all, daemon=True).start()
 
@@ -825,6 +974,36 @@ def courier_push_unsubscribe():
     if endpoint:
         db.remove_push_sub(endpoint)
     return jsonify({"ok": True})
+
+
+@app.route("/api/entregador/push/testar", methods=["POST"])
+@require_courier
+def courier_push_test():
+    """Manda um aviso de teste em alguns segundos, para o entregador fechar o
+    app e conferir que o alarme chega com o app fechado."""
+    if webpush is None:
+        return jsonify({"ok": False, "error": "Os avisos com o app fechado não estão disponíveis neste servidor."}), 503
+    if not db.list_push_subs():
+        return jsonify({"ok": False, "error": "Este aparelho ainda não ativou os avisos. Toque em \"Ativar avisos\" primeiro."}), 409
+    try:
+        private_key, _ = _vapid_keys()
+    except Exception as error:
+        print("push: erro nas chaves:", error)
+        return jsonify({"ok": False, "error": "Não foi possível preparar o aviso de teste."}), 500
+    payload = json.dumps({
+        "title": "🔔 Teste de aviso",
+        "body": "Se você recebeu isto com o app fechado, o alarme de pedido pronto vai funcionar.",
+        "order_id": "teste",
+        "test": True,
+    }, ensure_ascii=False)
+    subject = _vapid_subject()
+
+    def later():
+        time.sleep(PUSH_TEST_DELAY_S)
+        _send_push_now(payload, private_key, subject)
+
+    threading.Thread(target=later, daemon=True).start()
+    return jsonify({"ok": True, "delay": PUSH_TEST_DELAY_S})
 
 
 @app.route("/api/cozinha/pedidos/<int:order_id>/cancelar", methods=["POST"])
@@ -1141,6 +1320,7 @@ def admin_sales():
 # ---------- API dos funcionários ----------
 
 @app.route("/api/employee/login", methods=["POST"])
+@rate_limit("employee_login", max_hits=8, window_seconds=300)
 def employee_login():
     body = request.get_json(silent=True) or {}
     password = str(body.get("password") or "").strip()
