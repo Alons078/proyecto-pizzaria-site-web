@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS items (
     featured INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS sections (
+    id INTEGER PRIMARY KEY,
+    category TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS promotions (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -413,6 +420,29 @@ def _load_bordas(store_row):
 
 # ---------- leitura ----------
 
+BUILTIN_CATEGORIES = ("pizza", "salgado", "bebida")
+
+
+def _recover_missing_sections(sections, items):
+    """Seções extras criadas no admin precisam existir junto com seus
+    produtos. Se algum produto aponta para uma categoria "sec-N" que não tem
+    seção (acontecia porque o servidor antigo não guardava as seções), cria a
+    seção na hora com o nome "Seção N" - o dono pode renomear no admin."""
+    known = {s["category"] for s in sections}
+    out = list(sections)
+    for it in items:
+        cat = it.get("category", "")
+        if not cat or cat in BUILTIN_CATEGORIES or cat in known:
+            continue
+        digits = "".join(ch for ch in cat if ch.isdigit())
+        sid = int(digits) if digits else max([s["id"] for s in out] + [0]) + 1
+        while any(s["id"] == sid for s in out):
+            sid += 1
+        out.append({"id": sid, "category": cat, "name": f"Seção {digits or sid}"})
+        known.add(cat)
+    return out
+
+
 def load_data():
     """Devolve o mesmo formato de dicionário que o antigo data.json tinha,
     para que o resto do app.py não precise mudar sua lógica interna."""
@@ -425,6 +455,7 @@ def load_data():
     shift_rows = conn.execute("SELECT * FROM shifts ORDER BY id").fetchall()
     sale_rows = conn.execute("SELECT * FROM sales ORDER BY id").fetchall()
     size_rows = conn.execute("SELECT * FROM pizza_sizes ORDER BY sort_order, id").fetchall()
+    section_rows = conn.execute("SELECT * FROM sections ORDER BY sort_order, id").fetchall()
     conn.close()
 
     store = {
@@ -498,6 +529,12 @@ def load_data():
         for r in size_rows
     ]
 
+    sections = [
+        {"id": r["id"], "category": r["category"], "name": r["name"]}
+        for r in section_rows
+    ]
+    sections = _recover_missing_sections(sections, items)
+
     return {
         "store": store,
         "today_post": today_post,
@@ -506,6 +543,7 @@ def load_data():
         "shifts": shifts,
         "sales": sales,
         "pizza_sizes": pizza_sizes,
+        "sections": sections,
     }
 
 
@@ -720,6 +758,31 @@ def save_menu_data(new_data, expected_revision=None):
                         float(size.get("price", 0) or 0),
                         order,
                     ),
+                )
+
+        # Seções extras (ex.: Sobremesas). Só mexe se o admin mandou a lista.
+        # Toda categoria extra que tenha produtos ganha uma seção, mesmo que
+        # a lista venha incompleta: assim nenhum produto fica "órfão".
+        if "sections" in new_data:
+            clean = []
+            for sec in new_data.get("sections") or []:
+                if not isinstance(sec, dict):
+                    continue
+                category = str(sec.get("category") or "").strip()
+                name = str(sec.get("name") or "").strip()[:60]
+                try:
+                    sid = int(sec.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                if (category and name and category not in BUILTIN_CATEGORIES
+                        and all(c["category"] != category and c["id"] != sid for c in clean)):
+                    clean.append({"id": sid, "category": category, "name": name})
+            clean = _recover_missing_sections(clean, new_data.get("items", []))
+            conn.execute("DELETE FROM sections")
+            for order, sec in enumerate(clean):
+                conn.execute(
+                    "INSERT INTO sections (id, category, name, sort_order) VALUES (?, ?, ?, ?)",
+                    (sec["id"], sec["category"], sec["name"], order),
                 )
 
         revision = _bump_menu_revision(conn)
@@ -1035,7 +1098,7 @@ def list_pending_orders():
     """Pedidos ainda não impressos, do mais antigo para o mais novo."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT * FROM orders WHERE status = 'pendente' ORDER BY id ASC"
+        "SELECT * FROM orders WHERE status = 'pendente' AND stage != 'cancelado' ORDER BY id ASC"
     ).fetchall()
     conn.close()
     return [_order_row_to_dict(r) for r in rows]

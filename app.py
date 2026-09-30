@@ -37,6 +37,7 @@ import time
 
 import db
 import delivery_fee
+import print_format
 
 # Avisos push (o celular do entregador recebe "pedido pronto" mesmo com o
 # navegador fechado). Se a biblioteca não estiver instalada, o resto do site
@@ -397,6 +398,7 @@ def get_data():
         "items": data["items"],
         "promotions": data["promotions"],
         "pizza_sizes": data["pizza_sizes"],
+        "sections": data["sections"],
     }
     return jsonify(public)
 
@@ -1022,7 +1024,8 @@ def kitchen_cancel_order(order_id):
 def pending_orders():
     """Usado pelo programinha da impressora, que fica perguntando aqui
     de tempos em tempos se chegou pedido novo."""
-    return jsonify({"ok": True, "orders": db.list_pending_orders()})
+    orders = [print_format.pedido_para_impressao(o) for o in db.list_pending_orders()]
+    return jsonify({"ok": True, "orders": orders})
 
 
 @app.route("/api/pedidos/<int:order_id>/impresso", methods=["POST"])
@@ -1060,6 +1063,7 @@ def get_admin_data():
         "promotions": data["promotions"],
         "shifts": safe_shifts,
         "pizza_sizes": data["pizza_sizes"],
+        "sections": data["sections"],
         # Número de versão do cardápio: o "Salvar" só é aceito se a tela
         # ainda estiver na versão atual (evita sobrescrever com dados velhos).
         "revision": db.get_menu_revision(),
@@ -1087,6 +1091,10 @@ def update_data():
 
     if "pizza_sizes" not in new_data or not isinstance(new_data["pizza_sizes"], list):
         new_data["pizza_sizes"] = []
+
+    # Seções extras: se vier algo que não é lista, ignora (não apaga as atuais).
+    if "sections" in new_data and not isinstance(new_data["sections"], list):
+        del new_data["sections"]
 
     for size in new_data["pizza_sizes"]:
         if not isinstance(size, dict) or not str(size.get("name") or "").strip():
