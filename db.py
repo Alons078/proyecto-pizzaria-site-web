@@ -983,6 +983,84 @@ def cancel_order(order_id):
         conn.close()
 
 
+_EDITABLE_ORDER_COLUMNS = (
+    "customer_name", "customer_phone", "address", "payment_method", "notes",
+    "delivery_fee", "troco_paid_with", "total",
+)
+
+
+def requeue_print(order_id):
+    """Volta o pedido para a fila de impressão (o agente térmico o pega de novo
+    em /api/pedidos/pendentes). Devolve o pedido atualizado, ou None se não existe
+    ou está cancelado."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE orders SET status = 'pendente', printed_at = NULL WHERE id = ? AND stage != 'cancelado'",
+            (order_id,),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        return _order_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def update_order_fields(order_id, fields, items=None):
+    """Edita um pedido AINDA EM ANDAMENTO (nem entregue nem cancelado), num único
+    UPDATE. `fields`: só colunas de _EDITABLE_ORDER_COLUMNS (já validadas pelo app).
+    `items`: lista de {index, name, qty, unit_price}; cada item editado mantém as
+    outras chaves do original (ex.: pizza_count) e é identificado pelo índice; os
+    índices que não vierem na lista são removidos. O troco é recalculado.
+    Devolve o pedido atualizado, None se não pode mais ser editado; ValueError se
+    algum índice de item é inválido."""
+    values = {k: v for k, v in fields.items() if k in _EDITABLE_ORDER_COLUMNS}
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM orders WHERE id = ? AND stage NOT IN ('entregue', 'cancelado')", (order_id,)
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        if items is not None:
+            current = json.loads(row["items_json"])
+            merged = []
+            for edit in items:
+                if not 0 <= edit["index"] < len(current):
+                    raise ValueError("índice de item inválido")
+                merged.append({**current[edit["index"]], "name": edit["name"], "qty": edit["qty"], "unit_price": edit["unit_price"]})
+            values["items_json"] = json.dumps(merged, ensure_ascii=False)
+        # Troco: só existe pagando em dinheiro e com valor que cobre o total.
+        if values.get("payment_method", row["payment_method"]) != "Dinheiro":
+            values["troco_paid_with"] = None
+            values["troco_amount"] = None
+        elif "troco_paid_with" in values or "total" in values:
+            paid = values.get("troco_paid_with", row["troco_paid_with"])
+            total = values.get("total", row["total"])
+            if paid is not None and paid < total:
+                paid = None
+            values["troco_paid_with"] = paid
+            values["troco_amount"] = round(paid - total, 2) if paid is not None else None
+        if values:
+            assignments = ", ".join(f"{column} = ?" for column in values)   # colunas vêm de whitelist
+            conn.execute(
+                f"UPDATE orders SET {assignments} WHERE id = ? AND stage NOT IN ('entregue', 'cancelado')",
+                (*values.values(), order_id),
+            )
+        row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        conn.commit()
+        return _order_row_to_dict(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def delete_orders(order_ids):
     """Apaga em definitivo os pedidos com esses ids. Usado para limpar o
     histórico do dia no admin. Só apaga pedidos JÁ FINALIZADOS (entregues ou

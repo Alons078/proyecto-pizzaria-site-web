@@ -1019,6 +1019,80 @@ def kitchen_cancel_order(order_id):
     return jsonify({"ok": True})
 
 
+def _parse_money(value, allow_none=False):
+    """Valor em reais vindo do navegador -> float >= 0 com 2 casas. ValueError se inválido."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        if allow_none:
+            return None
+        raise ValueError("valor obrigatório")
+    if isinstance(value, bool):
+        raise ValueError("valor inválido")
+    number = round(float(str(value).replace(",", ".")), 2)
+    if not 0 <= number <= 100000:   # também rejeita NaN e infinito
+        raise ValueError("valor fora do limite")
+    return number
+
+
+EDIT_TEXT_LIMITS = (("customer_name", 120), ("customer_phone", 30), ("address", 300), ("payment_method", 60), ("notes", 500))
+
+
+@app.route("/api/cozinha/pedidos/<int:order_id>/reimprimir", methods=["POST"])
+@require_kitchen
+def kitchen_reprint_order(order_id):
+    """Volta o pedido para a fila do agente de impressão (ele imprime de novo)."""
+    if not db.requeue_print(order_id):
+        return jsonify({"ok": False, "error": "Não foi possível reimprimir (pedido não encontrado ou cancelado)."}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cozinha/pedidos/<int:order_id>/editar", methods=["POST"])
+@require_kitchen
+def kitchen_edit_order(order_id):
+    """Edita dados, valores e itens de um pedido ainda em andamento."""
+    body = request.get_json(silent=True) or {}
+    fields = {key: str(body.get(key) or "").strip()[:limit] for key, limit in EDIT_TEXT_LIMITS if key in body}
+    items = None
+    try:
+        for key in ("delivery_fee", "troco_paid_with"):
+            if key in body:
+                fields[key] = _parse_money(body[key], allow_none=True)
+        if "total" in body:
+            fields["total"] = _parse_money(body["total"])
+        if "items" in body:
+            raw_items = body["items"]
+            if not isinstance(raw_items, list) or not 1 <= len(raw_items) <= MAX_ORDER_ITEMS:
+                raise ValueError("itens")
+            items = []
+            for entry in raw_items:
+                if not isinstance(entry, dict):
+                    raise ValueError("item")
+                qty = float(entry.get("qty"))
+                name = str(entry.get("name") or "").strip()[:200]
+                if not qty.is_integer() or not 1 <= qty <= 500 or not name:
+                    raise ValueError("item")
+                items.append({
+                    "index": int(entry.get("index")),
+                    "name": name,
+                    "qty": int(qty),
+                    "unit_price": _parse_money(entry.get("unit_price")),
+                })
+            if len({item["index"] for item in items}) != len(items):
+                raise ValueError("itens repetidos")
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Dados inválidos. Confira quantidades, preços e nomes."}), 400
+
+    try:
+        updated = db.update_order_fields(order_id, fields, items)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Item do pedido inválido. Atualize a lista e tente de novo."}), 400
+    if not updated:
+        return jsonify({"ok": False, "error": "Esse pedido não pode mais ser editado (já foi entregue ou cancelado)."}), 409
+    if body.get("reprint"):
+        updated = db.requeue_print(order_id) or updated
+    updated["is_delivery"] = updated["delivery_type"] == db.DELIVERY_TYPE_VALUE
+    return jsonify({"ok": True, "order": updated})
+
+
 @app.route("/api/pedidos/pendentes", methods=["GET"])
 @require_print_agent
 def pending_orders():
