@@ -2994,3 +2994,33 @@ main.wrap > .panel { scroll-margin-top: 64px; }
   font-family: var(--font-body);
   font-size: 14px;
 }
+
+/* ---------- cozinha: mais opções e edição do pedido ---------- */
+.k-more-toggle { margin-top: 10px; }
+.k-more { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.k-more[hidden], .k-edit [hidden] { display: none; }
+.k-more-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.k-more-actions .item-toggle-all { flex: 1 1 170px; padding: 12px 14px; font-size: 13px; }
+.k-edit { padding: 12px; border: 1px dashed var(--ember); border-radius: 12px; background: var(--paper); }
+.k-edit-title { margin: 0 0 12px; font-family: var(--font-display); font-style: italic; font-size: 16px; }
+.k-edit .field textarea { min-height: 60px; }
+.k-edit-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px 120px auto;
+  gap: 8px;
+  align-items: end;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.k-edit-item .field { margin-bottom: 0; min-width: 0; }
+.k-edit-item .delete-item-btn { padding: 11px 12px; }
+.k-edit-check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); }
+.k-edit-check input { width: 18px; height: 18px; accent-color: var(--ember); }
+.k-edit-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.k-edit-actions .save-btn { flex: 1 1 180px; }
+.k-edit-actions .item-toggle-all { padding: 12px 18px; }
+@media (max-width: 600px) {
+  .k-edit-item { grid-template-columns: 1fr 1fr; }
+  .k-edit-item .k-edit-name, .k-edit-item .delete-item-btn { grid-column: 1 / -1; }
+}

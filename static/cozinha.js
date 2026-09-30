@@ -10,6 +10,8 @@ let knownIds = null;          // null = ainda não carregou a primeira vez
 const openIds = new Set();    // pedidos com o desplegável aberto
 const busyIds = new Set();    // pedidos com clique em andamento
 const closedHere = new Set(); // pedidos que ESTA tela entregou/cancelou (não avisar de novo)
+const moreIds = new Set();    // pedidos com o bloco "Mais opções" aberto
+let editingId = null;         // pedido com o formulário de edição aberto (o polling não redesenha a lista enquanto isso)
 let poller = null;
 let audioCtx = null;
 let wakeLock = null;
@@ -174,6 +176,20 @@ function nextButtonLabel(order) {
 
 /* ---------- desenho da lista ---------- */
 
+/* Bloco oculto "Mais opções": reimprimir comprovante e editar pedido. */
+function moreHTML(order) {
+  const open = moreIds.has(order.id);
+  const busy = busyIds.has(order.id) ? " disabled" : "";
+  const inner = editingId === order.id
+    ? `<div class="k-edit-slot"></div>`
+    : `<div class="k-more-actions">
+        <button type="button" class="item-toggle-all k-reprint"${busy}>🖨 Reimprimir comprovante</button>
+        <button type="button" class="item-toggle-all k-edit-open"${busy}>✏️ Editar pedido</button>
+      </div>`;
+  return `<button type="button" class="item-toggle-all k-more-toggle" aria-expanded="${open}">⋯ Mais opções</button>
+      <div class="k-more"${open ? "" : " hidden"}>${inner}</div>`;
+}
+
 function orderHTML(order) {
   const isOpen = openIds.has(order.id);
   const items = (order.items || []).map((it) =>
@@ -201,6 +217,7 @@ function orderHTML(order) {
     <div class="k-body">
       <ul class="k-items">${items}</ul>
       <div class="k-details">${details}</div>
+      ${moreHTML(order)}
     </div>
     <button type="button" class="save-btn k-next"${busyIds.has(order.id) ? " disabled" : ""}>${nextButtonLabel(order)}</button>
     <button type="button" class="delete-item-btn k-cancel"${busyIds.has(order.id) ? " disabled" : ""}>Cancelar pedido</button>
@@ -209,6 +226,10 @@ function orderHTML(order) {
 
 function render() {
   const list = document.getElementById("k-list");
+  if (editingId !== null && !orders.some((o) => o.id === editingId)) editingId = null;
+  // O formulário de edição sobrevive ao redesenho da lista (mantém o que já foi digitado).
+  const keptForm = editingId !== null ? list.querySelector(".k-edit") : null;
+  if (keptForm) keptForm.remove();
   document.getElementById("k-count").textContent = orders.length ? `(${orders.length})` : "";
   if (!orders.length) {
     list.innerHTML = `<div class="empty-items">Nenhum pedido em andamento. Quando chegar um novo, ele aparece aqui.</div>`;
@@ -226,7 +247,23 @@ function render() {
     });
     card.querySelector(".k-next").addEventListener("click", () => advance(id, card.dataset.stage));
     card.querySelector(".k-cancel").addEventListener("click", () => cancelOrder(id));
+    const more = card.querySelector(".k-more");
+    const moreToggle = card.querySelector(".k-more-toggle");
+    moreToggle.addEventListener("click", () => {
+      const open = more.hidden;
+      more.hidden = !open;
+      moreToggle.setAttribute("aria-expanded", String(open));
+      if (open) moreIds.add(id); else moreIds.delete(id);
+    });
+    card.querySelector(".k-reprint")?.addEventListener("click", () => reprintOrder(id));
+    card.querySelector(".k-edit-open")?.addEventListener("click", () => openEdit(id));
   });
+
+  if (editingId !== null) {
+    const slot = list.querySelector(`.k-order[data-id="${editingId}"] .k-edit-slot`);
+    const order = orders.find((o) => o.id === editingId);
+    if (slot && order) slot.replaceWith(keptForm || buildEditForm(order));
+  }
 }
 
 /* ---------- servidor ---------- */
@@ -261,7 +298,7 @@ async function loadOrders() {
     if (signature !== lastSignature) {
       lastSignature = signature;
       orders = data.orders;
-      render();
+      if (editingId === null) render();   // com o formulário aberto, só atualiza os dados
     }
   } catch (error) {
     console.error(error);
@@ -276,6 +313,7 @@ async function advance(id, fromStage) {
   const willFinish = order.stage === "em_rota" || (order.stage === "pronto" && !order.is_delivery);
   if (willFinish && !window.confirm(`Marcar o pedido #${id} como entregue? Ele sai desta lista.`)) return;
 
+  if (editingId === id) editingId = null;
   busyIds.add(id);
   if (willFinish) closedHere.add(id);
   render();
@@ -304,6 +342,7 @@ async function cancelOrder(id) {
   if (!order || busyIds.has(id)) return;
   if (!window.confirm(`Cancelar o pedido #${id}? Ele sai da lista e não conta como venda.`)) return;
 
+  if (editingId === id) editingId = null;
   busyIds.add(id);
   closedHere.add(id);
   render();
@@ -323,9 +362,195 @@ async function cancelOrder(id) {
   }
 }
 
+/* ---------- mais opções: reimprimir e editar ---------- */
+
+async function reprintOrder(id) {
+  if (busyIds.has(id)) return;
+  if (!window.confirm(`Reimprimir o comprovante do pedido #${id}?`)) return;
+  busyIds.add(id);
+  render();
+  try {
+    const res = await fetch(`/api/cozinha/pedidos/${id}/reimprimir`, { method: "POST" });
+    if (res.status === 401) { showLogin(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) showToast(data.error || "Não foi possível reimprimir");
+    else showToast(`Pedido #${id} enviado para impressão`);
+  } catch (error) {
+    console.error(error);
+    showToast("Sem conexão — tente de novo");
+  } finally {
+    busyIds.delete(id);
+    lastSignature = "";
+    await loadOrders();
+  }
+}
+
+const PAYMENT_OPTIONS = ["Dinheiro", "Cartão na entrega", "Pix na maquininha", "Pix"];
+
+function moneyInput(value) {
+  return value == null || value === "" ? "" : Number(value).toFixed(2);
+}
+
+function parseNumber(value) {
+  return parseFloat(String(value ?? "").replace(",", "."));
+}
+
+function openEdit(id) {
+  if (busyIds.has(id)) return;
+  if (editingId !== null && editingId !== id) {
+    showToast(`Termine ou cancele a edição do pedido #${editingId} primeiro`);
+    return;
+  }
+  editingId = id;
+  openIds.add(id);
+  moreIds.add(id);
+  render();
+  document.querySelector(`.k-order[data-id="${id}"] .k-edit`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function cancelEdit() {
+  editingId = null;
+  render();
+}
+
+// Total = soma dos itens + taxa, a menos que o total tenha sido digitado à mão.
+function recalcEditTotal(wrap) {
+  if (wrap.dataset.manualTotal === "1") return;
+  const num = (el) => { const n = parseNumber(el && el.value); return Number.isFinite(n) ? n : 0; };
+  let sum = 0;
+  wrap.querySelectorAll(".k-edit-item").forEach((row) => {
+    sum += num(row.querySelector(".ke-qty")) * num(row.querySelector(".ke-price"));
+  });
+  wrap.querySelector(".ke-total").value = (sum + num(wrap.querySelector(".ke-fee"))).toFixed(2);
+}
+
+function buildEditForm(order) {
+  const payments = PAYMENT_OPTIONS.includes(order.payment_method) || !order.payment_method
+    ? [...PAYMENT_OPTIONS]
+    : [order.payment_method, ...PAYMENT_OPTIONS];
+  if (!order.payment_method) payments.unshift("");
+  const paymentOptions = payments.map((p) =>
+    `<option value="${escapeHTML(p)}"${p === (order.payment_method || "") ? " selected" : ""}>${escapeHTML(p || "Não informado")}</option>`).join("");
+
+  const itemRows = (order.items || []).map((it, i) => `
+    <div class="k-edit-item" data-index="${i}">
+      <div class="field k-edit-name"><label>Item</label><input type="text" class="ke-name" maxlength="200" value="${escapeHTML(it.name)}"></div>
+      <div class="field"><label>Qtd</label><input type="number" class="ke-qty" min="1" step="1" inputmode="numeric" value="${escapeHTML(it.qty)}"></div>
+      <div class="field"><label>Preço un. (R$)</label><input type="number" class="ke-price" min="0" step="0.01" inputmode="decimal" value="${moneyInput(it.unit_price)}"></div>
+      <button type="button" class="delete-item-btn ke-remove">Remover</button>
+    </div>`).join("");
+
+  const wrap = document.createElement("div");
+  wrap.className = "k-edit";
+  wrap.innerHTML = `
+    <h4 class="k-edit-title">✏️ Editar pedido #${order.id}</h4>
+    <div class="field"><label>Nome do cliente</label><input type="text" class="ke-customer" maxlength="120" value="${escapeHTML(order.customer_name)}"></div>
+    <div class="field"><label>Telefone</label><input type="text" class="ke-phone" maxlength="30" inputmode="tel" value="${escapeHTML(order.customer_phone)}"></div>
+    ${order.is_delivery ? `
+    <div class="field"><label>Endereço</label><input type="text" class="ke-address" maxlength="300" value="${escapeHTML(order.address)}"></div>
+    <div class="field"><label>Taxa de entrega (R$) — vazio = a combinar</label><input type="number" class="ke-fee" min="0" step="0.01" inputmode="decimal" value="${moneyInput(order.delivery_fee)}"></div>` : ""}
+    <div class="field"><label>Pagamento</label><select class="ke-payment">${paymentOptions}</select></div>
+    <div class="field ke-troco-field"${order.payment_method === "Dinheiro" ? "" : " hidden"}><label>Troco para (R$)</label><input type="number" class="ke-troco" min="0" step="0.01" inputmode="decimal" value="${moneyInput(order.troco_paid_with)}"></div>
+    <div class="field"><label>Observações</label><textarea class="ke-notes" maxlength="500">${escapeHTML(order.notes)}</textarea></div>
+    ${itemRows}
+    <div class="field"><label>Total (R$)</label><input type="number" class="ke-total" min="0" step="0.01" inputmode="decimal" value="${moneyInput(order.total)}"><small>Soma dos itens + taxa, calculado sozinho. Pode ser alterado à mão.</small></div>
+    <button type="button" class="item-toggle-all ke-recalc">↻ Recalcular total</button>
+    <label class="k-edit-check"><input type="checkbox" class="ke-reprint"> Reimprimir ao salvar</label>
+    <div class="k-edit-actions">
+      <button type="button" class="save-btn ke-save">Salvar alterações</button>
+      <button type="button" class="item-toggle-all ke-cancel">Cancelar</button>
+    </div>`;
+
+  wrap.addEventListener("input", (event) => {
+    if (event.target.matches(".ke-qty, .ke-price, .ke-fee")) recalcEditTotal(wrap);
+    else if (event.target.matches(".ke-total")) wrap.dataset.manualTotal = "1";
+  });
+  wrap.addEventListener("change", (event) => {
+    if (event.target.matches(".ke-payment")) wrap.querySelector(".ke-troco-field").hidden = event.target.value !== "Dinheiro";
+  });
+  wrap.addEventListener("click", (event) => {
+    const btn = event.target.closest("button");
+    if (!btn) return;
+    if (btn.matches(".ke-remove")) {
+      if (wrap.querySelectorAll(".k-edit-item").length <= 1) { showToast("O pedido precisa ter pelo menos 1 item"); return; }
+      btn.closest(".k-edit-item").remove();
+      recalcEditTotal(wrap);
+    } else if (btn.matches(".ke-recalc")) {
+      delete wrap.dataset.manualTotal;
+      recalcEditTotal(wrap);
+    } else if (btn.matches(".ke-save")) {
+      saveEdit(order.id, wrap);
+    } else if (btn.matches(".ke-cancel")) {
+      cancelEdit();
+    }
+  });
+  return wrap;
+}
+
+async function saveEdit(id, wrap) {
+  const q = (sel) => wrap.querySelector(sel);
+  const items = [];
+  for (const row of wrap.querySelectorAll(".k-edit-item")) {
+    const name = row.querySelector(".ke-name").value.trim();
+    const qty = parseNumber(row.querySelector(".ke-qty").value);
+    const price = parseNumber(row.querySelector(".ke-price").value);
+    if (!name) { showToast("Todo item precisa de um nome"); return; }
+    if (!Number.isInteger(qty) || qty < 1) { showToast("A quantidade precisa ser um número inteiro (mínimo 1)"); return; }
+    if (!Number.isFinite(price) || price < 0) { showToast("Confira o preço dos itens"); return; }
+    items.push({ index: Number(row.dataset.index), name, qty, unit_price: price });
+  }
+  const total = parseNumber(q(".ke-total").value);
+  if (!Number.isFinite(total) || total < 0) { showToast("Confira o total do pedido"); return; }
+
+  const optional = (sel) => { const raw = q(sel).value.trim(); return raw === "" ? null : raw; };
+  const payment = q(".ke-payment").value;
+  const body = {
+    customer_name: q(".ke-customer").value.trim(),
+    customer_phone: q(".ke-phone").value.trim(),
+    payment_method: payment,
+    troco_paid_with: payment === "Dinheiro" ? optional(".ke-troco") : null,
+    notes: q(".ke-notes").value.trim(),
+    total,
+    items,
+    reprint: q(".ke-reprint").checked,
+  };
+  if (q(".ke-address")) body.address = q(".ke-address").value.trim();
+  if (q(".ke-fee")) body.delivery_fee = optional(".ke-fee");
+
+  const saveBtn = q(".ke-save");
+  saveBtn.disabled = true;
+  try {
+    const res = await fetch(`/api/cozinha/pedidos/${id}/editar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401) { showLogin(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      showToast(data.error || "Não foi possível salvar as alterações");
+      if (res.status === 409) { editingId = null; lastSignature = ""; await loadOrders(); }
+      return;
+    }
+    editingId = null;
+    const i = orders.findIndex((o) => o.id === id);
+    if (i >= 0 && data.order) orders[i] = { ...orders[i], ...data.order };
+    render();
+    showToast(body.reprint ? `Pedido #${id} salvo e enviado para impressão` : `Pedido #${id} salvo`);
+    lastSignature = "";
+    await loadOrders();
+  } catch (error) {
+    console.error(error);
+    showToast("Sem conexão — tente de novo");
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
 /* ---------- login ---------- */
 
 function showLogin() {
+  editingId = null;
   if (poller) { poller.stop(); poller = null; }
   document.getElementById("k-login").style.display = "block";
   document.getElementById("k-board").style.display = "none";
