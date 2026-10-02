@@ -393,21 +393,26 @@ function urlBase64ToBytes(b64) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
-function setPushUI(state) {
+// iPadOS 13+ se identifica como "Macintosh": diferencia pelo toque.
+const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const IS_STANDALONE = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+function setPushUI(state, detail) {
   const btn = document.getElementById("d-push");
   const hint = document.getElementById("d-push-hint");
+  const iosHelp = document.getElementById("d-ios-help");
   if (!btn || !hint) return;
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-  btn.style.display = state === "ask" ? "inline-block" : "none";
+  btn.style.display = state === "ask" || state === "ios-install" || state === "error" ? "inline-block" : "none";
   const testBtn = document.getElementById("d-push-test");
   if (testBtn) testBtn.style.display = state === "on" ? "inline-block" : "none";
+  if (iosHelp) iosHelp.style.display = state === "ios-install" ? "block" : "none";
   const messages = {
     on: "🔔 Avisos ativados: você recebe o aviso de pedido pronto mesmo com o navegador fechado. O som do aviso é o do celular: deixe o volume alto, o modo silencioso desligado e o modo \"Não perturbe\" fora. Toque em \"Testar aviso\", feche o app e confira.",
     denied: "🔕 Avisos bloqueados. Libere as notificações deste site nas configurações do navegador para receber aviso com o app fechado.",
-    unsupported: isIOS && !standalone
-      ? "No iPhone: toque em Compartilhar → “Adicionar à Tela de Início” e abra o app por esse ícone para poder ativar os avisos."
+    unsupported: IS_IOS
+      ? "Este iPhone/iPad não permite avisos com o app fechado (precisa do iOS 16.4 ou mais novo). O alarme toca enquanto esta tela estiver aberta."
       : "Este navegador não permite avisos com o app fechado. O alarme toca enquanto esta tela estiver aberta.",
+    error: `⚠️ Não foi possível ativar os avisos${detail ? `: ${detail}` : "."} Toque no botão para tentar de novo.`,
   };
   hint.textContent = messages[state] || "";
   hint.style.display = messages[state] ? "block" : "none";
@@ -416,19 +421,24 @@ function setPushUI(state) {
 // fromClick=true quando o entregador tocou no botão (só assim o navegador deixa pedir a permissão).
 async function setupPush(fromClick) {
   try {
+    // iOS só tem Web Push com o site instalado na tela de início.
+    if (IS_IOS && !IS_STANDALONE) {
+      setPushUI("ios-install");
+      if (fromClick) document.getElementById("d-ios-help")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
       setPushUI("unsupported");
       return;
     }
+    // A permissão é pedida antes de qualquer espera de rede: o iOS só aceita dentro do gesto do toque.
+    if (fromClick && Notification.permission === "default") await Notification.requestPermission();
+
     const info = await (await fetch("/api/entregador/push/key", { cache: "no-store" })).json();
     if (!info.ok || !info.enabled) { setPushUI("none"); return; }
 
     if (Notification.permission === "denied") { setPushUI("denied"); return; }
-    if (Notification.permission === "default") {
-      if (!fromClick) { setPushUI("ask"); return; }
-      const result = await Notification.requestPermission();
-      if (result !== "granted") { setPushUI(result === "denied" ? "denied" : "ask"); return; }
-    }
+    if (Notification.permission !== "granted") { setPushUI("ask"); return; }
 
     const reg = await navigator.serviceWorker.register("/entregador-sw.js");
     await navigator.serviceWorker.ready;
@@ -442,16 +452,17 @@ async function setupPush(fromClick) {
       }
     }
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-    await fetch("/api/entregador/push/subscribe", {
+    const saved = await fetch("/api/entregador/push/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sub.toJSON()),
     });
+    if (!saved.ok) throw new Error("o servidor recusou a inscrição");
     setPushUI("on");
     if (fromClick) showToast("Avisos ativados ✓");
   } catch (error) {
     console.error(error);
-    setPushUI("unsupported");
+    setPushUI("error", error && error.message);
   }
 }
 

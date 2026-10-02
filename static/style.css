@@ -28,7 +28,10 @@ body {
   font-family: var(--font-body);
   line-height: 1.5;
   min-height: 100vh;
+  min-height: 100dvh;
   animation: pageFadeIn 0.35s ease both;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 /* ---------- transição suave entre páginas ---------- */
@@ -63,6 +66,7 @@ header.top {
   justify-content: center;
   gap: 14px;
   padding: 28px 24px 20px;
+  padding-top: calc(28px + env(safe-area-inset-top, 0px));
   max-width: 880px;
   margin: 0 auto;
   text-align: center;
@@ -1169,6 +1173,7 @@ h2.panel-toggle-heading {
 .save-bar {
   position: sticky;
   bottom: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   display: flex;
   justify-content: flex-end;
   margin-top: 4px;
@@ -1192,6 +1197,7 @@ h2.panel-toggle-heading {
 .toast {
   position: fixed;
   bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%) translateY(20px);
   background: var(--paper-warm);
@@ -1493,6 +1499,7 @@ h2.panel-toggle-heading {
 .crop-dialog {
   width: min(760px, 100%);
   max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
   overflow: auto;
   background: var(--paper-warm);
   border: 1px solid var(--line-strong);
@@ -1663,6 +1670,7 @@ h2.panel-toggle-heading {
 
 .login-wrap {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1859,6 +1867,7 @@ h2.panel-toggle-heading {
 .pos-cart-bar {
   position: sticky;
   bottom: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   margin-top: 22px;
   background: var(--paper);
   border: 1px solid var(--line-strong);
@@ -1942,6 +1951,7 @@ h2.panel-toggle-heading {
   top: 0;
   z-index: 100;
   background: rgba(18, 16, 17, 0.92);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--line);
   padding: 12px 24px;
@@ -2169,6 +2179,7 @@ h2.panel-toggle-heading {
   justify-content: center;
   gap: 14px;
   background: rgba(20, 14, 10, 0.78);
+  -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   opacity: 0;
   animation: order-overlay-in 0.25s ease forwards;
@@ -2232,6 +2243,7 @@ h2.panel-toggle-heading {
   border-top: 1px solid var(--line-strong);
   box-shadow: 0 -8px 24px var(--shadow);
   padding: 14px 16px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   animation: privacy-banner-in 0.35s ease;
 }
 @keyframes privacy-banner-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
@@ -2557,6 +2569,7 @@ main.wrap > .panel { scroll-margin-top: 64px; }
   position: fixed;
   left: 14px;
   bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   z-index: 60;
   padding: 11px 16px;
   border-radius: 999px;
@@ -2618,6 +2631,7 @@ main.wrap > .panel { scroll-margin-top: 64px; }
   position: fixed;
   left: 50%;
   bottom: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 80;
   display: flex;
@@ -2684,6 +2698,7 @@ main.wrap > .panel { scroll-margin-top: 64px; }
 .d-alarm {
   position: sticky;
   top: 8px;
+  top: calc(8px + env(safe-area-inset-top, 0px));
   z-index: 30;
   align-items: center;
   justify-content: space-between;
@@ -3023,4 +3038,49 @@ main.wrap > .panel { scroll-margin-top: 64px; }
 @media (max-width: 600px) {
   .k-edit-item { grid-template-columns: 1fr 1fr; }
   .k-edit-item .k-edit-name, .k-edit-item .delete-item-btn { grid-column: 1 / -1; }
+}
+
+/* ---------- botão de zona de entrega (carrinho) ---------- */
+.zone-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: break-word;
+}
+.zone-option .zone-sub {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+.zone-option.selected .zone-sub { color: inherit; }
+
+/* ---------- ajustes para celular ---------- */
+.d-ios-help {
+  margin: 10px 0;
+  padding: 14px 16px;
+  border: 2px solid var(--ember);
+  border-radius: 14px;
+  background: var(--paper-warm);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.d-ios-help ol { margin: 8px 0 0; padding-left: 20px; }
+.d-ios-help li { margin-bottom: 4px; }
+
+@media (max-width: 768px) {
+  /* o iOS dá zoom na página ao focar campos com fonte menor que 16px */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  /* alvos de toque maiores */
+  .cart-qty-control button { width: 38px; height: 38px; }
+  .cart-line-remove { min-width: 38px; min-height: 38px; }
+  .pos-step-btn { width: 40px; height: 40px; }
 }

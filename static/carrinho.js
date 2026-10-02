@@ -100,7 +100,7 @@ function renderCart() {
       <label>Bairro de entrega</label>
       <div class="flavor-mode-options">
         <button type="button" class="zone-option flavor-mode-btn" data-zone="Piscinão de Ramos">Piscinão de Ramos</button>
-        <button type="button" class="zone-option flavor-mode-btn" data-zone="Ramos">Ramos</button>
+        <button type="button" class="zone-option flavor-mode-btn" data-zone="Ramos"><span class="zone-title">Do outro lado da passarela</span><small class="zone-sub">Ramos</small></button>
       </div>
       <div class="zone-address-wrap" style="display:none;">
         <label>Seu endereço (rua, número)</label>
