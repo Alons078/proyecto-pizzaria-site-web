@@ -2,12 +2,14 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<link rel="icon" type="image/png" href="/static/entregador-icon-192.png">
 <title>Entregador · Rey Pizzaria</title>
 <link rel="manifest" href="/static/entregador.webmanifest">
 <meta name="theme-color" content="#1a1a1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Entregador">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/static/entregador-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -61,6 +63,16 @@
       <button type="button" class="item-toggle-all" id="d-push-test" style="display:none;">🧪 Testar aviso (feche o app)</button>
     </div>
     <p class="field-hint" id="d-push-hint" style="display:none;"></p>
+    <div class="d-ios-help" id="d-ios-help" style="display:none;">
+      <strong>📱 No iPhone/iPad os avisos só funcionam com o app instalado:</strong>
+      <ol>
+        <li>Toque em <b>Compartilhar</b> (⬆︎) no Safari.</li>
+        <li>Escolha <b>Adicionar à Tela de Início</b>.</li>
+        <li>Abra o app pelo <b>novo ícone</b> na tela de início.</li>
+        <li>Entre de novo com a senha do entregador.</li>
+        <li>Toque em <b>Ativar avisos com o app fechado</b>.</li>
+      </ol>
+    </div>
     <div class="d-alarm" id="d-alarm" style="display:none;">
       <span id="d-alarm-text">🍕 Pedido pronto!</span>
       <button type="button" id="d-alarm-stop">Entendi</button>
