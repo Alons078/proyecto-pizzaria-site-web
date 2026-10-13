@@ -26,6 +26,7 @@ let wakeLock = null;
 let shiftBusy = false;
 let confirmId = null;         // pedido cujo "Confirmar entrega" está esperando o 2º toque
 let confirmTimer = null;
+let courierFilter = "all";    // "all" | "pronto" | "em_rota" — só filtra a lista já carregada; sobrevive aos refrescos
 
 function escapeHTML(value) {
   return String(value ?? "")
@@ -189,11 +190,28 @@ function paymentLine(order) {
   return `<p><span>Pagamento</span> ${label} · ${formatPrice(order.total)}</p>`;
 }
 
+/* Resumo do pedido para o cartão FECHADO: "🍕 N pizzas · M itens" (N = soma de
+ * pizza_count × qty, M = soma das quantidades) e os nomes numa linha curta
+ * (o CSS corta em 2 linhas). A lista completa só aparece ao expandir. */
+function itemsSummary(order) {
+  const list = order.items || [];
+  const pizzas = list.reduce((t, it) => t + (Number(it.pizza_count) || 0) * (Number(it.qty) || 0), 0);
+  const itens = list.reduce((t, it) => t + (Number(it.qty) || 0), 0);
+  const parts = [];
+  if (pizzas) parts.push(`🍕 ${pizzas} ${pizzas === 1 ? "pizza" : "pizzas"}`);
+  parts.push(`${pizzas ? "" : "🧾 "}${itens} ${itens === 1 ? "item" : "itens"}`);
+  return {
+    line: parts.join(" · "),
+    names: list.map((it) => `${it.qty}× ${it.name}`).join(", "),
+  };
+}
+
 function orderHTML(order) {
   const isOpen = openIds.has(order.id);
   const isReady = order.stage === "pronto";
   const items = (order.items || []).map((it) =>
     `<li><strong>${escapeHTML(it.qty)}x</strong> ${escapeHTML(it.name)}</li>`).join("");
+  const summary = itemsSummary(order);
   const sub = isReady
     ? `<span class="d-ready-tag">PRONTO — pegar na cozinha</span>${order.ready_min == null ? "" : ` · há ${order.ready_min} min`}`
     : `🛵 Entrega${order.route_min == null ? "" : ` · em rota há ${order.route_min} min`}`;
@@ -220,6 +238,8 @@ function orderHTML(order) {
       <span class="k-chevron">▾</span>
     </button>
     <p class="d-address">📍 ${escapeHTML(order.address || "Endereço não informado")}</p>
+    <p class="d-summary">${summary.line}</p>
+    ${summary.names ? `<p class="d-items-preview">${escapeHTML(summary.names)}</p>` : ""}
     ${mapsUrl ? `<a class="d-maps" href="${mapsUrl}" target="_blank" rel="noopener">🗺️ Abrir no Maps</a>` : ""}
     <div class="k-body">
       <ul class="k-items">${items}</ul>
@@ -233,14 +253,36 @@ function orderHTML(order) {
   </article>`;
 }
 
+/* Chips "Todas | Prontas | Em rota": contadores sempre sobre a lista completa. */
+function updateFilterChips() {
+  const counts = {
+    all: orders.length,
+    pronto: orders.filter((o) => o.stage === "pronto").length,
+    em_rota: orders.filter((o) => o.stage === "em_rota").length,
+  };
+  document.querySelectorAll("#d-filter .d-chip").forEach((chip) => {
+    const key = chip.dataset.filter;
+    const active = key === courierFilter;
+    chip.classList.toggle("active", active);
+    chip.setAttribute("aria-pressed", String(active));
+    chip.querySelector(".d-chip-count").textContent = counts[key] ?? 0;
+  });
+}
+
 function render() {
   const list = document.getElementById("d-list");
   document.getElementById("d-count").textContent = orders.length ? `(${orders.length})` : "";
+  updateFilterChips();
   if (!orders.length) {
     list.innerHTML = `<div class="empty-items">Nenhuma entrega agora. Quando a cozinha marcar um pedido de entrega como "pronto", ele aparece aqui (com aviso sonoro).</div>`;
     return;
   }
-  list.innerHTML = orders.map(orderHTML).join("");
+  const visible = courierFilter === "all" ? orders : orders.filter((o) => o.stage === courierFilter);
+  if (!visible.length) {
+    list.innerHTML = `<div class="empty-items">${courierFilter === "pronto" ? "Nenhum pedido pronto esperando na cozinha agora." : "Nenhum pedido em rota agora."}</div>`;
+    return;
+  }
+  list.innerHTML = visible.map(orderHTML).join("");
 
   list.querySelectorAll(".k-order").forEach((card) => {
     const id = Number(card.dataset.id);
@@ -267,9 +309,11 @@ function renderShift(shift) {
   sinceEl.textContent = shift ? `Desde as ${formatClock(shift.started_at)}` : "Nenhuma contagem aberta";
 }
 
+/* Hora da loja (Brasil) lida direto do texto ISO ("2026-10-13T08:51:00"),
+   sem new Date(), para não depender do fuso do aparelho. */
 function formatClock(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const m = /[T ](\d{2}:\d{2})/.exec(String(iso || ""));
+  return m ? m[1] : "";
 }
 
 async function loadOrders() {
@@ -657,6 +701,12 @@ async function login() {
   }
 }
 
+document.querySelectorAll("#d-filter .d-chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    courierFilter = chip.dataset.filter;
+    render();   // usa a lista que já está na tela: nada de pedir de novo ao servidor
+  });
+});
 document.getElementById("d-login-btn").addEventListener("click", login);
 document.getElementById("d-password").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
 document.getElementById("d-logout").addEventListener("click", async () => {

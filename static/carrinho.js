@@ -125,7 +125,8 @@ function renderCart() {
     </div>
     <div class="checkout-field">
       <label>Observações (opcional)</label>
-      <textarea id="checkout-notes" rows="2" placeholder="Ex.: sem cebola, troco para R$ 100..."></textarea>
+      <textarea id="checkout-notes" rows="2" maxlength="100" aria-describedby="checkout-notes-count" placeholder="Ex.: sem cebola, troco para R$ 100..."></textarea>
+      <p class="char-count" id="checkout-notes-count" aria-live="polite">0/100</p>
     </div>
 
     <a href="#" class="checkout-btn${storeInfo.is_open === false ? " is-disabled" : ""}" id="checkout-btn"${storeInfo.is_open === false ? ' aria-disabled="true"' : ""}>📲 Confirmar pedido pelo WhatsApp</a>
@@ -282,6 +283,12 @@ function renderCart() {
     updatePixSection();
   });
   trocoInput.addEventListener("input", updateTrocoResult);
+
+  const notesInput = document.getElementById("checkout-notes");
+  const notesCount = document.getElementById("checkout-notes-count");
+  notesInput.addEventListener("input", () => {
+    notesCount.textContent = `${notesInput.value.length}/${notesInput.maxLength}`;
+  });
   toggleTrocoField();
   updatePixSection();
 
@@ -343,7 +350,7 @@ function sendToWhatsApp(cart, subtotal, feeCtl) {
   const delivery = document.getElementById("checkout-delivery").value;
   const address = document.getElementById("checkout-address").value.trim();
   const payment = document.getElementById("checkout-payment").value;
-  const notes = document.getElementById("checkout-notes").value.trim();
+  const notes = document.getElementById("checkout-notes").value.trim().slice(0, 100);
   const trocoRaw = document.getElementById("checkout-troco").value.trim();
 
   if (!name) {

@@ -41,14 +41,6 @@ body {
   to { opacity: 1; }
 }
 
-@keyframes pageFadeOut {
-  to { opacity: 0; }
-}
-
-body.is-leaving {
-  animation: pageFadeOut 0.18s ease forwards;
-}
-
 a { color: inherit; }
 
 .wrap {
@@ -831,6 +823,18 @@ header.top {
   font-size: 14px;
 }
 
+.checkout-field textarea {
+  resize: none;
+}
+
+.char-count {
+  margin: 4px 0 0;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
 .troco-result {
   margin: 8px 0 0;
   font-family: var(--font-mono);
@@ -1421,12 +1425,6 @@ h2.panel-toggle-heading {
   font-family: var(--font-body);
   font-size: 14px;
 }
-.promo-total {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-  font-family: var(--font-mono);
-  color: var(--ember-dark);
-}
 .promo-warning { min-height: 18px; font-size: 12px; color: var(--ink-soft); }
 .description { color: var(--ink-soft); font-size: 13px; line-height: 1.45; }
 
@@ -1798,6 +1796,20 @@ h2.panel-toggle-heading {
 
 .pedido-cancelado td { color: var(--ink-soft); text-decoration: line-through; }
 
+.store-sessions-title { margin: 22px 0 8px; font-size: 15px; }
+
+/* Entregas da noite: linha clicável + detalhe de cada entrega */
+.courier-shift-row { cursor: pointer; }
+.courier-shift-row:hover td { background: rgba(0, 0, 0, 0.03); }
+.courier-shift-row:focus-visible { outline: 2px solid var(--ember); outline-offset: -2px; }
+.courier-chevron { display: inline-block; transition: transform 0.15s ease; color: var(--ink-soft); }
+.courier-shift-row.is-open .courier-chevron { transform: rotate(90deg); }
+.courier-detail-row > td { padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.courier-deliveries-table { margin: 6px 0 0; }
+.courier-deliveries-table tfoot td { border-top: 2px solid var(--line); border-bottom: 0; }
+.courier-address-cell { white-space: normal; min-width: 160px; }
+#courier-open-deliveries { margin-bottom: 14px; }
+
 @media (max-width: 700px) {
   .sales-table { display: block; overflow-x: auto; white-space: nowrap; }
 }
@@ -2112,7 +2124,7 @@ h2.panel-toggle-heading {
     animation: none !important;
   }
   .cursor-glow { display: none !important; }
-  body, body.is-leaving { animation: none !important; }
+  body { animation: none !important; }
   .cart-badge.is-bumping,
   .add-to-cart-btn.is-added,
   .stage-dot.is-popping,
@@ -2658,7 +2670,63 @@ main.wrap > .panel { scroll-margin-top: 64px; }
 }
 
 /* ---------- painel do entregador ---------- */
-.d-address { margin: 4px 0 8px; font-size: 17px; font-weight: 600; line-height: 1.35; }
+/* Endereço: sempre visível no cartão fechado e nunca cortado (quebra a linha). */
+.d-address {
+  margin: 4px 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+/* Resumo do pedido (cartão fechado) */
+.d-summary { margin: 0 0 4px; font-family: var(--font-mono); font-size: 13px; color: var(--ink-soft); }
+.d-items-preview {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+/* Aberto: a lista completa já aparece em .k-items, então some o recorte. */
+.k-order.is-open .d-items-preview { display: none; }
+
+/* Chips de filtro: Todas | Prontas | Em rota */
+.d-filter { display: flex; gap: 8px; margin: 10px 0 12px; }
+.d-chip {
+  flex: 1;
+  min-height: 44px;
+  padding: 8px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.d-chip.active {
+  border-color: var(--ember);
+  color: var(--ember-dark);
+  background: rgba(255, 122, 61, 0.12);
+  font-weight: 700;
+}
+.d-chip-count {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+}
 .d-maps {
   display: inline-block;
   margin-bottom: 8px;

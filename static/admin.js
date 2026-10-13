@@ -1315,6 +1315,7 @@ async function loadSales() {
 
     statsEl.innerHTML = `
       <div class="sales-stat-card sales-stat-highlight"><span>Total geral</span><strong>${formatPrice(data.stats.total_geral)}</strong></div>
+      ${data.stats.total_noite == null ? "" : `<div class="sales-stat-card sales-stat-highlight"><span>Esta noite</span><strong>${formatPrice(data.stats.total_noite)}</strong></div>`}
       <div class="sales-stat-card sales-stat-highlight"><span>Últimos 7 dias</span><strong>${formatPrice(data.stats.total_semana)}</strong></div>
       ${byShiftHTML}`;
 
@@ -1345,6 +1346,7 @@ async function loadSales() {
 let pedidosPeriod = "today";
 let pedidosDeliveryFilter = "all";
 let lastPedidosOrders = [];
+let lastPedidosNight = null;
 
 const PEDIDOS_STAGE_LABELS = {
   confirmado: "Confirmado",
@@ -1365,6 +1367,9 @@ async function loadPedidosHistorico() {
     if (!res.ok) throw new Error("Não foi possível carregar o histórico de pedidos.");
     const data = await res.json();
     lastPedidosOrders = data.orders;
+    lastPedidosNight = data.night || null;
+    renderNightLabel();
+    renderStoreSessions(data.sessions || []);
     // Some as estatísticas quando os dados mudam, até apertar o botão de novo.
     statsEl.innerHTML = "";
     document.getElementById("pedidos-entregas-stats").innerHTML = "";
@@ -1374,6 +1379,45 @@ async function loadPedidosHistorico() {
     console.error(error);
     tableEl.innerHTML = `<div class="empty-items">Erro ao carregar o histórico de pedidos.</div>`;
   }
+}
+
+/* Só a hora ("HH:MM") e só o dia ("dd/mm") de um texto ISO da loja, sem new Date(). */
+function formatClock(value) {
+  const m = /[T ](\d{2}:\d{2})/.exec(String(value || ""));
+  return m ? m[1] : "—";
+}
+function formatDay(value) {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(value || ""));
+  return m ? `${m[2]}/${m[1]}` : "—";
+}
+
+/* Linha abaixo dos botões Noite / 7 dias / Tudo. */
+function renderNightLabel() {
+  const el = document.getElementById("pedidos-night-label");
+  if (!el) return;
+  if (pedidosPeriod !== "today") { el.textContent = ""; return; }
+  const n = lastPedidosNight;
+  if (!n || !n.opened_at) {
+    el.textContent = "Ainda sem registro de abertura da loja: mostrando o dia de hoje (desde 00:00).";
+    return;
+  }
+  el.textContent = `Noite de ${formatDay(n.opened_at)} · abriu ${formatClock(n.opened_at)} · ${n.closed_at ? `fechou ${formatClock(n.closed_at)}` : "em andamento"}`;
+}
+
+function renderStoreSessions(sessions) {
+  const el = document.getElementById("store-sessions-table");
+  if (!el) return;
+  if (!sessions.length) {
+    el.innerHTML = `<div class="empty-items">Nenhuma abertura registrada ainda.</div>`;
+    return;
+  }
+  el.innerHTML = `<table class="sales-table">
+    <thead><tr><th>Abriu</th><th>Fechou</th></tr></thead>
+    <tbody>${sessions.map((s) => `<tr>
+      <td>${escapeHTML(formatTimestamp(s.opened_at))}</td>
+      <td>${s.closed_at ? escapeHTML(formatTimestamp(s.closed_at)) : "<strong>em andamento</strong>"}</td>
+    </tr>`).join("")}</tbody>
+  </table>`;
 }
 
 function filteredPedidosOrders() {
@@ -1478,6 +1522,7 @@ document.querySelectorAll("#pedidos-period-toggle button").forEach((btn) => {
     document.querySelectorAll("#pedidos-period-toggle button").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     pedidosPeriod = btn.dataset.period;
+    renderNightLabel();
     loadPedidosHistorico();
   });
 });
@@ -1485,7 +1530,7 @@ document.querySelectorAll("#pedidos-period-toggle button").forEach((btn) => {
 document.getElementById("pedidos-limpar-hoje-btn")?.addEventListener("click", async () => {
   const btn = document.getElementById("pedidos-limpar-hoje-btn");
   const confirmado = window.confirm(
-    "Apagar o histórico de hoje?\n\nIsso apaga pra sempre os pedidos de hoje já entregues ou cancelados. Pedidos ainda em andamento não são afetados. Essa ação não pode ser desfeita."
+    "Apagar o histórico DESTA NOITE?\n\nIsso apaga pra sempre os pedidos desta noite (desde a abertura da loja" + (lastPedidosNight && lastPedidosNight.opened_at ? ", " + formatTimestamp(lastPedidosNight.opened_at) : "") + ") já entregues ou cancelados. Pedidos ainda em andamento não são afetados. Essa ação não pode ser desfeita."
   );
   if (!confirmado) return;
   btn.disabled = true;
@@ -1524,10 +1569,12 @@ document.getElementById("pedidos-pizzas-btn")?.addEventListener("click", showPed
 document.getElementById("pedidos-entregas-btn")?.addEventListener("click", showPedidosEntregasStats);
 document.getElementById("pedidos-pizzas-valor-btn")?.addEventListener("click", showPedidosPizzasValorStats);
 
+/* O servidor grava a hora da loja (Brasil) como texto ISO sem fuso
+   ("2026-10-13T08:51:00"). Lemos "dd/mm HH:MM" direto do texto, sem new Date(),
+   para não depender do fuso do aparelho. */
 function formatTimestamp(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value || "—";
-  return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const m = /^\d{4}-(\d{2})-(\d{2})[T ](\d{2}:\d{2})/.exec(String(value || ""));
+  return m ? `${m[2]}/${m[1]} ${m[3]}` : value || "—";
 }
 
 function addItem(category) {
@@ -2070,14 +2117,77 @@ function initSectionNav() {
 
 /* ---------- entregas da noite (contagem do entregador) ---------- */
 
-function formatShiftTime(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso || "—";
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+// Detalhe das entregas: a noite aberta vem junto com a lista; as fechadas só são
+// buscadas ao tocar na linha (e guardadas aqui: uma noite fechada não muda, então
+// a atualização automática de 30 s não precisa buscar de novo nem fechar a linha).
+const courierExpanded = new Set();
+const courierDetailCache = new Map();
+
+function courierDeliveriesTableHTML(deliveries, shift) {
+  if (!deliveries.length) {
+    return shift && shift.deliveries === 0
+      ? `<p class="field-hint">Nenhuma entrega confirmada nesta noite.</p>`
+      : `<p class="field-hint">Esta noite não tem o detalhe das entregas (é anterior a este recurso). Valem só os totais.</p>`;
+  }
+  const sum = deliveries.reduce((t, d) => t + (Number(d.delivery_fee) || 0), 0);
+  const partial = shift && deliveries.length < shift.deliveries
+    ? `<p class="field-hint">Detalhe de ${deliveries.length} das ${shift.deliveries} entregas (as demais foram feitas antes deste recurso existir). Os totais da noite continuam valendo.</p>`
+    : "";
+  return `<table class="sales-table courier-deliveries-table">
+    <thead><tr><th>Cliente</th><th>Taxa</th><th>Endereço</th><th>Hora</th></tr></thead>
+    <tbody>${deliveries.map((d) => `<tr>
+      <td>${escapeHTML(d.customer_name || "—")}</td>
+      <td>${formatPrice(d.delivery_fee)}</td>
+      <td class="courier-address-cell">${escapeHTML(d.address || "—")}</td>
+      <td>${escapeHTML(formatClock(d.delivered_at))}</td>
+    </tr>`).join("")}</tbody>
+    <tfoot><tr><td><strong>Total de taxas</strong></td><td><strong>${formatPrice(sum)}</strong></td><td colspan="2"></td></tr></tfoot>
+  </table>${partial}`;
 }
+
+async function fillCourierDetail(shiftId, detailRow) {
+  const cell = detailRow.firstElementChild;
+  if (courierDetailCache.has(shiftId)) { cell.innerHTML = courierDetailCache.get(shiftId); return; }
+  cell.innerHTML = `<p class="field-hint">Carregando…</p>`;
+  try {
+    const res = await fetch(`/api/admin/entregas/turnos/${shiftId}/entregas`, { cache: "no-store" });
+    if (res.status === 401) return;
+    if (!res.ok) throw new Error("Não foi possível carregar as entregas.");
+    const data = await res.json();
+    const html = courierDeliveriesTableHTML(data.deliveries || [], data.shift);
+    courierDetailCache.set(shiftId, html);
+    cell.innerHTML = html;
+  } catch (error) {
+    console.error(error);
+    cell.innerHTML = `<p class="field-hint">Erro ao carregar as entregas desta noite. Toque de novo para tentar.</p>`;
+  }
+}
+
+async function toggleCourierShiftDetail(row) {
+  const shiftId = Number(row.dataset.shiftId);
+  const detailRow = row.nextElementSibling;
+  if (!detailRow) return;
+  const willOpen = !courierExpanded.has(shiftId);
+  if (willOpen) courierExpanded.add(shiftId); else courierExpanded.delete(shiftId);
+  row.classList.toggle("is-open", willOpen);
+  row.setAttribute("aria-expanded", String(willOpen));
+  detailRow.hidden = !willOpen;
+  if (willOpen) await fillCourierDetail(shiftId, detailRow);
+}
+
+document.getElementById("courier-shifts-table")?.addEventListener("click", (event) => {
+  const row = event.target.closest(".courier-shift-row");
+  if (row) toggleCourierShiftDetail(row);
+});
+document.getElementById("courier-shifts-table")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const row = event.target.closest(".courier-shift-row");
+  if (row) { event.preventDefault(); toggleCourierShiftDetail(row); }
+});
 
 async function loadCourierShifts() {
   const openEl = document.getElementById("courier-open-shift");
+  const openDetailEl = document.getElementById("courier-open-deliveries");
   const tableEl = document.getElementById("courier-shifts-table");
   if (!openEl || !tableEl) return;
   try {
@@ -2091,10 +2201,12 @@ async function loadCourierShifts() {
     if (data.open) {
       openEl.innerHTML = `
         <div class="sales-stat-card sales-stat-highlight"><span>Noite em andamento — entregas até agora</span><strong>${data.open.deliveries}</strong></div>
-        <div class="sales-stat-card"><span>Começou</span><strong>${escapeHTML(formatShiftTime(data.open.started_at))}</strong></div>
+        <div class="sales-stat-card"><span>Começou</span><strong>${escapeHTML(formatTimestamp(data.open.started_at))}</strong></div>
         <div class="sales-stat-card"><span>Taxas de entrega</span><strong>${formatPrice(data.open.fees)}</strong></div>`;
+      if (openDetailEl) openDetailEl.innerHTML = courierDeliveriesTableHTML(data.open_deliveries || [], data.open);
     } else {
       openEl.innerHTML = `<div class="empty-items">Nenhuma noite aberta. A contagem começa quando o entregador entrar em /entregador.</div>`;
+      if (openDetailEl) openDetailEl.innerHTML = "";
     }
     forceBtn.style.display = data.open ? "inline-block" : "none";
     forceHint.style.display = data.open ? "block" : "none";
@@ -2106,14 +2218,19 @@ async function loadCourierShifts() {
     const total = data.shifts.reduce((sum, sh) => sum + sh.deliveries, 0);
     tableEl.innerHTML = `<table class="sales-table">
       <thead><tr><th>Início</th><th>Fechou</th><th>Entregas</th><th>Taxas</th></tr></thead>
-      <tbody>${data.shifts.map((sh) => `<tr>
-        <td>${escapeHTML(formatShiftTime(sh.started_at))}</td>
-        <td>${escapeHTML(formatShiftTime(sh.closed_at))}</td>
+      <tbody>${data.shifts.map((sh) => {
+        const expandable = sh.deliveries > 0;
+        const isOpen = expandable && courierExpanded.has(sh.id);
+        return `<tr class="${expandable ? "courier-shift-row" : ""}${isOpen ? " is-open" : ""}" data-shift-id="${sh.id}"${expandable ? ` tabindex="0" role="button" aria-expanded="${isOpen}"` : ""}>
+        <td>${expandable ? '<span class="courier-chevron" aria-hidden="true">▸</span> ' : ""}${escapeHTML(formatTimestamp(sh.started_at))}</td>
+        <td>${escapeHTML(formatTimestamp(sh.closed_at))}</td>
         <td><strong>${sh.deliveries}</strong></td>
         <td>${formatPrice(sh.fees)}</td>
-      </tr>`).join("")}</tbody>
+      </tr>${expandable ? `<tr class="courier-detail-row"${isOpen ? "" : " hidden"}><td colspan="4"></td></tr>` : ""}`;
+      }).join("")}</tbody>
     </table>
     <p class="field-hint">Total das últimas ${data.shifts.length} noite(s) fechada(s): <strong>${total}</strong> entrega(s).</p>`;
+    tableEl.querySelectorAll(".courier-shift-row.is-open").forEach((row) => fillCourierDetail(Number(row.dataset.shiftId), row.nextElementSibling));
   } catch (error) {
     console.error(error);
     tableEl.innerHTML = `<div class="empty-items">Erro ao carregar as entregas da noite.</div>`;
