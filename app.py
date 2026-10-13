@@ -23,7 +23,6 @@ from flask import Flask, jsonify, request, render_template, session, redirect, u
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 from functools import wraps
 import os
 import uuid
@@ -131,9 +130,6 @@ def is_allowed_image(filename):
     )
 
 
-FUSO_LOJA = ZoneInfo("America/Sao_Paulo")
-
-
 def is_open_now(store):
     """Decide se a loja está aberta pelo horário ou pelo status forçado.
 
@@ -143,13 +139,87 @@ def is_open_now(store):
     if store.get("force_status") is not None:
         return store["force_status"]
 
-    now = datetime.now(FUSO_LOJA).strftime("%H:%M")
+    now = db.now_store().strftime("%H:%M")
     hours = store["hours"]
     if hours["open"] <= hours["close"]:
         # Caso normal: não cruza a meia-noite (ej. 18:00 - 23:00).
         return hours["open"] <= now <= hours["close"]
     # Caso em que o fechamento é depois da meia-noite (ej. 18:00 - 01:00).
     return now >= hours["open"] or now <= hours["close"]
+
+
+# ---------- registro de abertura/fechamento da loja (noites) ----------
+# O admin trabalha por NOITE (18h às 2h), não por data. store_sessions guarda
+# quando a loja abriu/fechou; o resto do sistema usa isso como corte de "hoje".
+
+SESSION_SYNC_EVERY = 30          # segundos entre verificações "preguiçosas" (por processo)
+_session_sync_state = {"last": None}
+_session_sync_lock = threading.Lock()
+
+
+def _last_scheduled(hhmm, now):
+    """Última ocorrência (<= agora) do horário "HH:MM" da loja, ou None se inválido."""
+    try:
+        h, m = [int(x) for x in str(hhmm).split(":")[:2]]
+        t = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    except (TypeError, ValueError):
+        return None
+    return t if t <= now else t - timedelta(days=1)
+
+
+def sync_store_session_now(store=None, force=False):
+    """Registra em store_sessions a abertura/fechamento da loja.
+
+    - force=False (uso "preguiçoso", onde já se calcula is_open_now): no máximo
+      1 vez a cada ~30 s por processo, só memória; nada de consulta extra
+      entre uma verificação e outra.
+    - force=True (admin acabou de salvar o force_status): sempre verifica.
+    Em modo automático grava a hora PROGRAMADA (hours open/close), não a hora em
+    que a mudança foi percebida, para que nenhum pedido fique fora da noite.
+    Nunca derruba a requisição: qualquer erro só vai pro log."""
+    with _session_sync_lock:
+        t = time.monotonic()
+        last = _session_sync_state["last"]
+        if not force and last is not None and t - last < SESSION_SYNC_EVERY:
+            return
+        _session_sync_state["last"] = t
+    try:
+        if store is None:
+            store = db.load_data()["store"]
+        now = db.now_store()
+        now_iso = now.isoformat(timespec="seconds")
+        auto = store.get("force_status") is None
+        hours = store.get("hours") or {}
+        open_dt = _last_scheduled(hours.get("open"), now)
+        close_dt = _last_scheduled(hours.get("close"), now)
+        # Primeira sessão da vida (banco novo): se o horário diz "aberto", começa
+        # na abertura programada; senão, à meia-noite (igual ao "hoje" antigo).
+        sched_open = is_open_now({**store, "force_status": None}) if hours else False
+        first_dt = open_dt if (sched_open and open_dt) else now.replace(hour=0, minute=0, second=0, microsecond=0)
+        db.sync_store_session(
+            bool(is_open_now(store)),
+            now_iso,
+            open_iso=open_dt.isoformat(timespec="seconds") if open_dt else None,
+            close_iso=close_dt.isoformat(timespec="seconds") if close_dt else None,
+            auto=auto,
+            first_open_iso=first_dt.isoformat(timespec="seconds"),
+        )
+    except Exception:
+        app.logger.exception("Falha ao registrar abertura/fechamento da loja")
+
+
+def _night_window():
+    """(início, fim) da noite atual — fim None se a loja está aberta — ou None
+    se ainda não há nenhum registro (aí valem os cortes antigos)."""
+    sess = db.get_current_store_session()
+    if not sess:
+        return None
+    try:
+        start = datetime.fromisoformat(sess["opened_at"])
+        end = datetime.fromisoformat(sess["closed_at"]) if sess["closed_at"] else None
+    except (TypeError, ValueError):
+        return None
+    return start, end
 
 
 def require_admin(view):
@@ -390,6 +460,7 @@ def get_data():
     """Dados públicos para a vista do cliente. Não inclui turnos, senhas nem vendas."""
     data = db.load_data()
     data["store"]["is_open"] = is_open_now(data["store"])
+    sync_store_session_now(data["store"])
     # O token do agente de impressão é uma senha: nunca vai para o público.
     public_store = {k: v for k, v in data["store"].items() if k != "print_agent_token"}
     public = {
@@ -469,6 +540,7 @@ def create_order():
     imprimir o ticket. Não precisa de login — é o mesmo pedido que o
     cliente já vai mandar por WhatsApp de qualquer forma."""
     store = db.load_data()["store"]
+    sync_store_session_now(store)
     if not is_open_now(store):
         return jsonify({"ok": False, "error": "A loja está fechada agora. Não é possível fazer pedidos fora do horário de funcionamento."}), 403
 
@@ -532,13 +604,13 @@ def create_order():
             troco_amount = round(troco_paid_with - total, 2)
 
     order = {
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": db.datetime_now_iso(),
         "customer_name": str(body.get("customer_name") or "")[:120],
         "customer_phone": str(body.get("customer_phone") or "")[:30],
         "delivery_type": delivery_type,
         "address": address,
         "payment_method": payment_method,
-        "notes": str(body.get("notes") or "")[:500],
+        "notes": str(body.get("notes") or "").strip()[:100],
         "items": order_items,
         "total": round(total, 2),
         "troco_paid_with": troco_paid_with,
@@ -614,7 +686,7 @@ def my_orders():
     tokens = body.get("tokens")
     if not isinstance(tokens, list):
         return jsonify({"ok": False, "error": "Lista inválida."}), 400
-    now = datetime.now()
+    now = db.now_store()
     result = []
     for token in tokens[:20]:
         order = db.get_order_by_token(str(token))
@@ -643,7 +715,7 @@ def my_orders():
 @require_kitchen
 def kitchen_orders():
     orders = db.list_kitchen_orders()
-    now = datetime.now()
+    now = db.now_store()
     for order in orders:
         order["is_delivery"] = order["delivery_type"] == db.DELIVERY_TYPE_VALUE
         # Minutos desde que o pedido chegou (calculado no servidor, pra não
@@ -694,7 +766,7 @@ def courier_login():
         return jsonify({"ok": False, "error": "Senha incorreta."}), 401
     session["courier_pw"] = _courier_fingerprint(stored)
     session.permanent = True  # o celular não deve pedir a senha de novo a cada vez que fechar o navegador
-    db.open_courier_shift(_now_store_iso())   # começa a contagem das entregas da noite
+    db.open_courier_shift(db.datetime_now_iso())   # começa a contagem das entregas da noite
     return jsonify({"ok": True})
 
 
@@ -710,7 +782,7 @@ def courier_orders():
     """Pedidos de ENTREGA que o entregador precisa atender: 'pronto' (esperando
     ele pegar na cozinha) e 'em_rota' (já saíram), do mais antigo para o mais
     novo. Retirada nunca aparece aqui. Devolve também a contagem da noite."""
-    now = datetime.now()
+    now = db.now_store()
     orders = []
     for order in db.list_kitchen_orders():
         if order["stage"] not in ("pronto", "em_rota") or order["delivery_type"] != db.DELIVERY_TYPE_VALUE:
@@ -753,7 +825,7 @@ def courier_deliver_order(order_id):
     # Se o admin fechou a noite e o entregador ainda não voltou ao login, esta
     # entrega abre uma noite nova em vez de ficar sem contar.
     if _courier_session_valid():
-        db.open_courier_shift(_now_store_iso())
+        db.open_courier_shift(db.datetime_now_iso())
     updated = db.advance_order_stage(order_id, "em_rota")
     if not updated:
         return jsonify({"ok": False, "error": "Esse pedido já foi confirmado ou não está mais em rota."}), 409
@@ -761,11 +833,6 @@ def courier_deliver_order(order_id):
 
 
 # ---------- noite de entregas (contagem do entregador -> admin) ----------
-
-def _now_store_iso():
-    """Data/hora de agora no horário da loja (Brasil), sem fuso no texto."""
-    return datetime.now(FUSO_LOJA).replace(tzinfo=None).isoformat(timespec="seconds")
-
 
 def _courier_session_valid():
     stored = db.get_courier_password()
@@ -778,7 +845,7 @@ def courier_shift_start():
     """Garante que existe uma noite aberta. Só a sessão do ENTREGADOR abre
     (o admin só espiando a tela do entregador não começa contagem nenhuma)."""
     if _courier_session_valid():
-        return jsonify({"ok": True, "shift": db.open_courier_shift(_now_store_iso())})
+        return jsonify({"ok": True, "shift": db.open_courier_shift(db.datetime_now_iso())})
     return jsonify({"ok": True, "shift": db.get_open_courier_shift()})
 
 
@@ -790,7 +857,7 @@ def courier_shift_close():
     entrar de novo, começa uma contagem nova)."""
     body = request.get_json(silent=True) or {}
     endpoint = str(body.get("endpoint") or "")
-    closed = db.close_courier_shift(_now_store_iso())
+    closed = db.close_courier_shift(db.datetime_now_iso())
     # O aparelho é esquecido aqui, enquanto a sessão ainda vale (depois do
     # logout a chamada de "unsubscribe" já daria 401 e o aviso ficaria salvo).
     if endpoint:
@@ -810,18 +877,41 @@ def courier_shift_close():
 @app.route("/api/admin/entregas/turnos", methods=["GET"])
 @require_admin
 def admin_courier_shifts():
+    open_shift = db.get_open_courier_shift()
     return jsonify({
         "ok": True,
-        "open": db.get_open_courier_shift(),
+        "open": open_shift,
+        # A noite aberta já vem com o detalhe; as fechadas carregam ao tocar na linha.
+        "open_deliveries": db.list_courier_deliveries(open_shift["id"]) if open_shift else [],
         "shifts": db.list_closed_courier_shifts(30),
     })
+
+
+@app.route("/api/admin/entregas/turnos/<int:shift_id>/entregas", methods=["GET"])
+@require_admin
+def admin_courier_shift_deliveries(shift_id):
+    """Detalhe de uma noite do entregador: nome, taxa, endereço e hora de cada
+    entrega. Nunca devolve telefone. Noites antigas (sem detalhe) voltam com lista vazia."""
+    shift = db.get_courier_shift(shift_id)
+    if not shift:
+        return jsonify({"ok": False, "error": "Noite não encontrada."}), 404
+    deliveries = [
+        {
+            "customer_name": d["customer_name"],
+            "delivery_fee": d["delivery_fee"],
+            "address": d["address"],
+            "delivered_at": d["delivered_at"],
+        }
+        for d in db.list_courier_deliveries(shift_id)
+    ]
+    return jsonify({"ok": True, "shift": shift, "deliveries": deliveries})
 
 
 @app.route("/api/admin/entregas/turnos/fechar", methods=["POST"])
 @require_admin
 def admin_close_courier_shift():
     """Fecha à força a noite aberta (ex.: o entregador esqueceu de fechar)."""
-    closed = db.close_courier_shift(_now_store_iso())
+    closed = db.close_courier_shift(db.datetime_now_iso())
     if not closed:
         return jsonify({"ok": False, "error": "Não há noite aberta."}), 409
     return jsonify({"ok": True, "shift": closed})
@@ -1120,6 +1210,7 @@ def order_printed(order_id):
 def get_admin_data():
     data = db.load_data()
     data["store"]["is_open"] = is_open_now(data["store"])
+    sync_store_session_now(data["store"])
     # No devolver hashes ni contraseñas reales al navegador.
     # El admin solo ve un marcador; si no cambia el campo, se conserva la anterior.
     safe_shifts = []
@@ -1233,6 +1324,9 @@ def update_data():
         new_revision = db.save_menu_data(new_data, expected_revision=revision)
     except db.StaleMenuError:
         return jsonify({"ok": False, "error": "O cardápio foi alterado em outra aba ou aparelho depois que esta tela abriu. Suas alterações NÃO foram salvas: recarregue a página (Ctrl+F5) e refaça."}), 409
+    # O admin pode ter mexido em force_status ou nos horários: registra na hora
+    # a abertura/fechamento (sem depender do intervalo de 30 s).
+    sync_store_session_now({**existing_data["store"], **store_in}, force=True)
     return jsonify({"ok": True, "revision": new_revision})
 
 
@@ -1300,13 +1394,20 @@ def admin_set_courier_password():
 
 
 def _orders_in_period(orders, period):
-    """Filtra pedidos pelo campo created_at. 'today' = hoje (data local do
-    servidor), 'week' = últimos 7 dias, qualquer outro valor = tudo."""
+    """Filtra pedidos pelo campo created_at. 'today' = a NOITE atual (da abertura
+    da loja até agora, ou até o fechamento se já fechou); sem nenhuma abertura
+    registrada ainda, cai no corte antigo (data da loja, horário de Brasil).
+    'week' = últimos 7 dias, qualquer outro valor = tudo."""
     if period not in ("today", "week"):
         return orders
-    now = datetime.now()
+    now = db.now_store()
+    upper = None
     if period == "today":
-        cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        window = _night_window()
+        if window:
+            cutoff, upper = window
+        else:
+            cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
     else:
         cutoff = now - timedelta(days=7)
     result = []
@@ -1315,7 +1416,7 @@ def _orders_in_period(orders, period):
             ts = datetime.fromisoformat(o.get("created_at", ""))
         except ValueError:
             continue
-        if ts >= cutoff:
+        if ts >= cutoff and (upper is None or ts <= upper):
             result.append(o)
     return result
 
@@ -1327,6 +1428,7 @@ def admin_pedidos_historico():
     painel da cozinha), com o total de pizzas vendidas separado por tipo de
     entrega. period: 'today' (padrão), 'week' ou 'all'."""
     period = request.args.get("period", "today")
+    sync_store_session_now()   # limitado a 1x/30 s; garante a noite certa mesmo sem visitas ao site
     orders = _orders_in_period(db.list_all_orders(), period)
 
     pizzas_por_entrega = {}
@@ -1345,16 +1447,20 @@ def admin_pedidos_historico():
         "orders": orders[:200],
         "total_pedidos": active_orders,
         "pizzas_por_entrega": [{"delivery_type": k, "qty": v} for k, v in pizzas_por_entrega.items()],
+        # Noite atual (ou a última que fechou) e as últimas aberturas/fechamentos.
+        "night": db.get_current_store_session(),
+        "sessions": db.list_store_sessions(10),
     })
 
 
 @app.route("/api/admin/pedidos/historico/limpar-hoje", methods=["POST"])
 @require_admin
 def admin_limpar_historico_hoje():
-    """Apaga do histórico os pedidos de HOJE que já terminaram (entregues ou
-    cancelados). Pedidos ainda em andamento (confirmado/preparando/pronto/
-    em_rota) nunca são apagados por aqui, pra não quebrar o painel da
-    cozinha nem o acompanhamento do cliente."""
+    """Apaga do histórico os pedidos DESTA NOITE (o mesmo corte de "hoje" do
+    admin) que já terminaram (entregues ou cancelados). Pedidos ainda em
+    andamento (confirmado/preparando/pronto/em_rota) nunca são apagados por
+    aqui, pra não quebrar o painel da cozinha nem o acompanhamento do cliente."""
+    sync_store_session_now(force=True)
     orders = _orders_in_period(db.list_all_orders(), "today")
     ids = [o["id"] for o in orders if o.get("stage") in ("entregue", "cancelado")]
     deleted = db.delete_orders(ids)
@@ -1374,7 +1480,7 @@ def admin_sales():
         key = s.get("shift_name") or "Turno removido"
         by_shift[key] = round(by_shift.get(key, 0) + float(s.get("total", 0)), 2)
 
-    week_ago = datetime.now() - timedelta(days=7)
+    week_ago = db.now_store() - timedelta(days=7)
     total_semana = 0.0
     for s in sales:
         try:
@@ -1385,6 +1491,22 @@ def admin_sales():
             total_semana += float(s.get("total", 0))
     total_semana = round(total_semana, 2)
 
+    # Total desta noite (mesmo corte de "Noite" no histórico). None = ainda não há
+    # nenhuma abertura registrada: a tela simplesmente não mostra o cartão.
+    total_noite = None
+    window = _night_window()
+    if window:
+        start, end = window
+        total_noite = 0.0
+        for s in sales:
+            try:
+                ts = datetime.fromisoformat(s.get("timestamp", ""))
+            except ValueError:
+                continue
+            if ts >= start and (end is None or ts <= end):
+                total_noite += float(s.get("total", 0))
+        total_noite = round(total_noite, 2)
+
     recent = sorted(sales, key=lambda s: s.get("timestamp", ""), reverse=True)[:80]
 
     return jsonify({
@@ -1394,6 +1516,7 @@ def admin_sales():
         "stats": {
             "total_geral": total_geral,
             "total_semana": total_semana,
+            "total_noite": total_noite,
             "by_shift": by_shift,
         },
     })
@@ -1485,7 +1608,7 @@ def register_sale():
     sale = {
         "shift_id": session.get("shift_id"),
         "shift_name": session.get("shift_name", ""),
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "timestamp": db.datetime_now_iso(),
         "items": sale_items,
         "total": round(total, 2),
     }

@@ -18,6 +18,10 @@ O arquivo do banco (pizzaria.db) fica na mesma pasta do projeto.
 import sqlite3
 import json
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+FUSO_LOJA = ZoneInfo("America/Sao_Paulo")
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
@@ -159,6 +163,27 @@ CREATE TABLE IF NOT EXISTS courier_shifts (
     closed_at TEXT,
     deliveries INTEGER NOT NULL DEFAULT 0,
     fees REAL NOT NULL DEFAULT 0
+);
+
+-- Cada entrega confirmada na noite do entregador (cópia dos dados do pedido
+-- no momento da entrega). É uma CÓPIA independente: continua aqui mesmo que o
+-- admin use "Apagar histórico", e nunca guarda o telefone do cliente.
+CREATE TABLE IF NOT EXISTS courier_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shift_id INTEGER NOT NULL,
+    order_id INTEGER NOT NULL,
+    customer_name TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    delivery_fee REAL NOT NULL DEFAULT 0,
+    delivered_at TEXT NOT NULL
+);
+
+-- Registro de abertura/fechamento da loja. "Hoje" no admin = a NOITE atual
+-- (a pizzaria vai das 18h às 2h), então os cortes vêm daqui e não da data.
+CREATE TABLE IF NOT EXISTS store_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at TEXT NOT NULL,
+    closed_at TEXT
 );
 
 -- Aparelhos do entregador que ativaram os avisos (push) para receber
@@ -1125,6 +1150,24 @@ def advance_order_stage(order_id, expected_stage):
                 "UPDATE courier_shifts SET deliveries = deliveries + 1, fees = fees + ? WHERE closed_at IS NULL",
                 (float(row["delivery_fee"] or 0),),
             )
+            # Mesma transação: cópia do detalhe da entrega (nome, taxa, endereço),
+            # só se há noite aberta. Nunca o telefone.
+            open_shift = conn.execute(
+                "SELECT id FROM courier_shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if open_shift:
+                conn.execute(
+                    "INSERT INTO courier_deliveries (shift_id, order_id, customer_name, address, delivery_fee, delivered_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        open_shift["id"],
+                        order_id,
+                        row["customer_name"] or "",
+                        row["address"] or "",
+                        float(row["delivery_fee"] or 0),
+                        datetime_now_iso(),
+                    ),
+                )
         conn.commit()
         if cursor.rowcount == 0:
             return None
@@ -1197,9 +1240,15 @@ def mark_order_printed(order_id):
         conn.close()
 
 
+def now_store():
+    """Hora atual da loja (America/Sao_Paulo), sem fuso (naive). É a ÚNICA fonte
+    de "agora" do sistema: o servidor roda em UTC e o que vai pro banco, as idades
+    dos pedidos e os cortes de "hoje"/"7 dias" têm que usar a mesma hora."""
+    return datetime.now(FUSO_LOJA).replace(tzinfo=None)
+
+
 def datetime_now_iso():
-    from datetime import datetime
-    return datetime.now().isoformat(timespec="seconds")
+    return now_store().isoformat(timespec="seconds")
 
 
 def set_print_agent_token(token):
@@ -1311,6 +1360,110 @@ def list_closed_courier_shifts(limit=30):
             "SELECT * FROM courier_shifts WHERE closed_at IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [_shift_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_courier_shift(shift_id):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM courier_shifts WHERE id = ?", (shift_id,)).fetchone()
+        return _shift_row(row)
+    finally:
+        conn.close()
+
+
+def list_courier_deliveries(shift_id):
+    """Detalhe das entregas de uma noite (nome, taxa, endereço, hora), em ordem
+    de entrega. Nunca inclui telefone. Noites antigas (de antes deste recurso)
+    voltam com lista vazia."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT order_id, customer_name, address, delivery_fee, delivered_at "
+            "FROM courier_deliveries WHERE shift_id = ? ORDER BY id",
+            (shift_id,),
+        ).fetchall()
+        return [
+            {
+                "order_id": r["order_id"],
+                "customer_name": r["customer_name"],
+                "address": r["address"],
+                "delivery_fee": r["delivery_fee"],
+                "delivered_at": r["delivered_at"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+# ---------- abertura/fechamento da loja (noites) ----------
+
+def sync_store_session(is_open, now_iso, open_iso=None, close_iso=None, auto=False, first_open_iso=None):
+    """Mantém store_sessions em sintonia com o estado da loja (idempotente):
+    abre e não há sessão aberta -> INSERT; fecha e há uma aberta -> UPDATE closed_at.
+
+    Em modo automático (auto=True) o app passa a hora PROGRAMADA mais recente
+    (open_iso / close_iso), para que o corte da noite seja 18:00/02:00 e não a
+    hora em que alguém abriu a página. Os horários são ajustados aqui dentro
+    (na mesma transação) para nunca haver sessões sobrepostas nem fechamento
+    antes da abertura. first_open_iso só vale para a primeira sessão da vida.
+    Devolve "opened", "closed" ou None (nada mudou)."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        last = conn.execute("SELECT * FROM store_sessions ORDER BY id DESC LIMIT 1").fetchone()
+        cur_open = last is not None and last["closed_at"] is None
+        last_closed_at = last["closed_at"] if (last is not None and not cur_open) else None
+        changed = None
+
+        # Loja aberta pelo horário, mas a sessão aberta é de uma noite anterior
+        # (ninguém acessou o site entre o fechamento e esta abertura): fecha a
+        # velha no fechamento programado e abre a nova logo abaixo.
+        if is_open and cur_open and auto and close_iso and last["opened_at"] < close_iso <= now_iso:
+            conn.execute("UPDATE store_sessions SET closed_at = ? WHERE id = ?", (close_iso, last["id"]))
+            cur_open = False
+            last_closed_at = close_iso
+            changed = "closed"
+
+        if is_open and not cur_open:
+            start = first_open_iso if (last is None and first_open_iso) else (open_iso if auto and open_iso else None)
+            if not start or start > now_iso or (last_closed_at and start < last_closed_at):
+                start = now_iso
+            conn.execute("INSERT INTO store_sessions (opened_at) VALUES (?)", (start,))
+            changed = "opened"
+        elif not is_open and cur_open:
+            end = close_iso if (auto and close_iso) else now_iso
+            if end < last["opened_at"] or end > now_iso:
+                end = now_iso
+            conn.execute("UPDATE store_sessions SET closed_at = ? WHERE id = ?", (end, last["id"]))
+            changed = "closed"
+        conn.commit()
+        return changed
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_current_store_session():
+    """A sessão mais recente: a aberta (closed_at None) ou, se a loja está
+    fechada agora, a última que fechou. None se nunca houve registro."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM store_sessions ORDER BY id DESC LIMIT 1").fetchone()
+        return {"id": row["id"], "opened_at": row["opened_at"], "closed_at": row["closed_at"]} if row else None
+    finally:
+        conn.close()
+
+
+def list_store_sessions(limit=10):
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM store_sessions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [{"id": r["id"], "opened_at": r["opened_at"], "closed_at": r["closed_at"]} for r in rows]
     finally:
         conn.close()
 
