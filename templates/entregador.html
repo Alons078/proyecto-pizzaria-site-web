@@ -78,6 +78,11 @@
       <button type="button" id="d-alarm-stop">Entendi</button>
     </div>
     <p class="field-hint">A entrega mais antiga fica no topo. Quando o pedido estiver <strong>pronto</strong> você recebe um aviso; toque em <strong>Saí para entrega</strong> ao pegar e em <strong>Confirmar entrega</strong> ao entregar — a cozinha e o cliente veem na hora.</p>
+    <div class="d-filter" id="d-filter" role="group" aria-label="Filtrar entregas">
+      <button type="button" class="d-chip active" data-filter="all" aria-pressed="true">Todas <span class="d-chip-count">0</span></button>
+      <button type="button" class="d-chip" data-filter="pronto" aria-pressed="false">Prontas <span class="d-chip-count">0</span></button>
+      <button type="button" class="d-chip" data-filter="em_rota" aria-pressed="false">Em rota <span class="d-chip-count">0</span></button>
+    </div>
     <div id="d-list"></div>
   </section>
 
@@ -86,6 +91,6 @@
 <div class="toast" id="toast">Pedido atualizado</div>
 
 <script src="/static/live.js"></script>
-<script src="/static/entregador.js"></script>
+<script src="/static/entregador.js?v=20261013a"></script>
 </body>
 </html>

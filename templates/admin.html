@@ -216,11 +216,12 @@
     <div class="panel-heading-row">
       <h2>Histórico de pedidos (cozinha)</h2>
       <div class="status-toggle" id="pedidos-period-toggle">
-        <button type="button" data-period="today" class="active">Hoje</button>
+        <button type="button" data-period="today" class="active">Noite</button>
         <button type="button" data-period="week">7 dias</button>
         <button type="button" data-period="all">Tudo</button>
       </div>
     </div>
+    <p class="field-hint" id="pedidos-night-label"></p>
     <div class="status-toggle" id="pedidos-delivery-toggle">
       <button type="button" data-delivery="all" class="active">Todos</button>
       <button type="button" data-delivery="Retirada no local">Retirada</button>
@@ -228,7 +229,7 @@
     </div>
     <p class="login-sub">Pedidos feitos pelos clientes no site (os mesmos que passam pelo <strong>/cozinha</strong>). Pedidos cancelados e pedidos que ainda não foram entregues não entram nas estatísticas abaixo — só conta o que já foi realmente entregue.</p>
     <button type="button" class="delete-item-btn" id="pedidos-limpar-hoje-btn">🗑️ Apagar histórico de hoje</button>
-    <p class="field-hint">Apaga só os pedidos de hoje já <strong>entregues</strong> ou <strong>cancelados</strong>. Pedidos ainda em andamento não são apagados.</p>
+    <p class="field-hint">Apaga só os pedidos <strong>desta noite</strong> (o mesmo período do botão <strong>Noite</strong>) já <strong>entregues</strong> ou <strong>cancelados</strong>. Pedidos ainda em andamento não são apagados.</p>
     <div class="pedidos-stats-btns">
       <button type="button" class="add-item-btn" id="pedidos-pizzas-btn">🍕 Ver pizzas vendidas</button>
       <button type="button" class="add-item-btn" id="pedidos-entregas-btn">🛵 Ver entregas</button>
@@ -238,17 +239,22 @@
     <div class="sales-stats" id="pedidos-entregas-stats"></div>
     <div class="sales-stats" id="pedidos-pizzas-valor-stats"></div>
     <div id="pedidos-table-wrap"></div>
+
+    <h3 class="store-sessions-title">Aberturas e fechamentos da loja</h3>
+    <div id="store-sessions-table"></div>
   </section>
 
   <section class="panel">
     <h2>Entregas da noite (entregador)</h2>
     <p class="login-sub">A contagem começa quando o entregador entra em <strong>/entregador</strong> e termina quando ele toca em <strong>Fechar entregas</strong> — por isso cobre a noite inteira (das 18h às 2h), sem cortar à meia-noite.</p>
     <div class="sales-stats" id="courier-open-shift"></div>
+    <div id="courier-open-deliveries"></div>
     <div class="pedidos-stats-btns">
       <button type="button" class="add-item-btn" id="courier-shifts-refresh">🔄 Atualizar</button>
       <button type="button" class="delete-item-btn" id="courier-shift-force-close" style="display:none;">🔒 Fechar noite agora</button>
     </div>
     <p class="field-hint" id="courier-shift-force-hint" style="display:none;">Use "Fechar noite agora" só se o entregador esqueceu de fechar.</p>
+    <p class="field-hint">Toque numa noite fechada para ver cada entrega (cliente, taxa, endereço e hora).</p>
     <div id="courier-shifts-table"></div>
   </section>
 
@@ -297,6 +303,6 @@
 </div>
 
 <script src="/static/live.js"></script>
-<script src="/static/admin.js?v=20260929b"></script>
+<script src="/static/admin.js?v=20261013a"></script>
 </body>
 </html>
