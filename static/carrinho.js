@@ -374,6 +374,13 @@ function sendToWhatsApp(cart, subtotal, feeCtl) {
     return;
   }
 
+  // Pedido mínimo (sem contar a taxa de entrega); o servidor também confere.
+  const minOrder = Number(storeInfo.min_order) || 0;
+  if (minOrder > 0 && Math.round(subtotal * 100) < Math.round(minOrder * 100)) {
+    warningEl.textContent = `Pedido mínimo de ${cartFormatPrice(minOrder)} (sem contar a taxa de entrega).`;
+    return;
+  }
+
   const total = subtotal + feeCtl.feeAmount();   // total COM a taxa de entrega
 
   let trocoPaidWith = null;

@@ -2197,6 +2197,25 @@ h2.panel-toggle-heading {
   animation: order-overlay-in 0.25s ease forwards;
 }
 @keyframes order-overlay-in { to { opacity: 1; } }
+/* Aviso quando o pedido foi pelo WhatsApp mas não ficou registrado no sistema. */
+.order-register-alert {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 310;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  border: 2px solid var(--tomato);
+  border-radius: 14px;
+  background: var(--paper-warm);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.order-register-alert p { margin: 0 0 10px; }
 .order-success-check circle {
   stroke: var(--ember);
   stroke-width: 5;

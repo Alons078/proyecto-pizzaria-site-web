@@ -290,6 +290,19 @@ def init_db():
         conn.execute("ALTER TABLE items ADD COLUMN available INTEGER NOT NULL DEFAULT 1")
         conn.commit()
 
+    # Índices (só acrescentam; depois das colunas acima, que bancos antigos
+    # ganham por ALTER TABLE). Aceleram o acompanhamento do pedido, a cozinha,
+    # a fila de impressão e os fechamentos de turno do entregador.
+    for statement in (
+        "CREATE INDEX IF NOT EXISTS idx_orders_track_token ON orders(track_token)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_stage ON orders(stage)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
+        "CREATE INDEX IF NOT EXISTS idx_courier_deliveries_shift_id ON courier_deliveries(shift_id)",
+        "CREATE INDEX IF NOT EXISTS idx_courier_shifts_closed_at ON courier_shifts(closed_at)",
+    ):
+        conn.execute(statement)
+    conn.commit()
+
     row = conn.execute("SELECT COUNT(*) AS c FROM store").fetchone()
     is_empty = row["c"] == 0
 
@@ -481,20 +494,25 @@ def _recover_missing_sections(sections, items):
     return out
 
 
-def load_data():
+def load_data(include_sales=True):
     """Devolve o mesmo formato de dicionário que o antigo data.json tinha,
-    para que o resto do app.py não precise mudar sua lógica interna."""
-    conn = get_connection()
+    para que o resto do app.py não precise mudar sua lógica interna.
 
-    store_row = conn.execute("SELECT * FROM store WHERE id = 1").fetchone()
-    post_row = conn.execute("SELECT * FROM today_post WHERE id = 1").fetchone()
-    item_rows = conn.execute("SELECT * FROM items ORDER BY id").fetchall()
-    promo_rows = conn.execute("SELECT * FROM promotions ORDER BY id").fetchall()
-    shift_rows = conn.execute("SELECT * FROM shifts ORDER BY id").fetchall()
-    sale_rows = conn.execute("SELECT * FROM sales ORDER BY id").fetchall()
-    size_rows = conn.execute("SELECT * FROM pizza_sizes ORDER BY sort_order, id").fetchall()
-    section_rows = conn.execute("SELECT * FROM sections ORDER BY sort_order, id").fetchall()
-    conn.close()
+    include_sales=False não lê a tabela de vendas (cresce a cada venda e cada
+    linha passa por json.loads): "sales" volta como lista vazia. Use nas rotas
+    que não precisam das vendas (cardápio público, criar pedido...)."""
+    conn = get_connection()
+    try:
+        store_row = conn.execute("SELECT * FROM store WHERE id = 1").fetchone()
+        post_row = conn.execute("SELECT * FROM today_post WHERE id = 1").fetchone()
+        item_rows = conn.execute("SELECT * FROM items ORDER BY id").fetchall()
+        promo_rows = conn.execute("SELECT * FROM promotions ORDER BY id").fetchall()
+        shift_rows = conn.execute("SELECT * FROM shifts ORDER BY id").fetchall()
+        sale_rows = conn.execute("SELECT * FROM sales ORDER BY id").fetchall() if include_sales else []
+        size_rows = conn.execute("SELECT * FROM pizza_sizes ORDER BY sort_order, id").fetchall()
+        section_rows = conn.execute("SELECT * FROM sections ORDER BY sort_order, id").fetchall()
+    finally:
+        conn.close()
 
     store = {
         "name": store_row["name"],
@@ -970,10 +988,12 @@ def list_kitchen_orders():
     """Pedidos em andamento (ainda não entregues nem cancelados), do mais
     antigo (primeiro a chegar) para o mais novo."""
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM orders WHERE stage NOT IN ('entregue', 'cancelado') ORDER BY id ASC"
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM orders WHERE stage NOT IN ('entregue', 'cancelado') ORDER BY id ASC"
+        ).fetchall()
+    finally:
+        conn.close()
     return [_order_row_to_dict(r) for r in rows]
 
 
@@ -1126,8 +1146,10 @@ def list_all_orders():
     vendas do admin — diferente de list_kitchen_orders, que só mostra os
     que ainda estão em andamento."""
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
-    conn.close()
+    try:
+        rows = conn.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
+    finally:
+        conn.close()
     return [_order_row_to_dict(r) for r in rows]
 
 
@@ -1223,18 +1245,22 @@ def get_order_by_token(token):
     if not token:
         return None
     conn = get_connection()
-    row = conn.execute("SELECT * FROM orders WHERE track_token = ?", (token,)).fetchone()
-    conn.close()
+    try:
+        row = conn.execute("SELECT * FROM orders WHERE track_token = ?", (token,)).fetchone()
+    finally:
+        conn.close()
     return _order_row_to_dict(row) if row else None
 
 
 def list_pending_orders():
     """Pedidos ainda não impressos, do mais antigo para o mais novo."""
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM orders WHERE status = 'pendente' AND stage != 'cancelado' ORDER BY id ASC"
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM orders WHERE status = 'pendente' AND stage != 'cancelado' ORDER BY id ASC"
+        ).fetchall()
+    finally:
+        conn.close()
     return [_order_row_to_dict(r) for r in rows]
 
 

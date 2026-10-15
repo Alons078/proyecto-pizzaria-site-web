@@ -21,7 +21,6 @@ Variáveis de ambiente usadas em produção (configure-as no Render):
 """
 
 from flask import Flask, jsonify, request, render_template, session, redirect, url_for, g
-from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 from functools import wraps
@@ -36,6 +35,7 @@ import math
 import base64
 import threading
 import time
+from urllib.parse import urlsplit
 
 import db
 import delivery_fee
@@ -150,6 +150,23 @@ def is_allowed_image(filename):
         "." in filename
         and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
     )
+
+
+# Extensão -> formato real (jpg e jpeg são o mesmo formato).
+_IMAGE_EXTENSION_FAMILY = {"png": "png", "jpg": "jpg", "jpeg": "jpg", "webp": "webp", "gif": "gif"}
+
+
+def _detect_image_extension(head):
+    """Formato real da imagem pelos primeiros bytes (PNG/JPG/WEBP/GIF) ou None."""
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    return None
 
 
 def is_open_now(store):
@@ -271,7 +288,7 @@ def require_print_agent(view):
     Ele não faz login como o admin; manda o token num cabeçalho."""
     @wraps(view)
     def wrapped(*args, **kwargs):
-        data = db.load_data()
+        data = db.load_data(include_sales=False)
         expected = (data["store"].get("print_agent_token") or "").strip()
         sent = (request.headers.get("X-Print-Token") or "").strip()
         if not expected or not sent or not hmac.compare_digest(sent, expected):
@@ -701,7 +718,7 @@ def carrinho():
 @app.route("/api/data", methods=["GET"])
 def get_data():
     """Dados públicos para a vista do cliente. Não inclui turnos, senhas nem vendas."""
-    data = db.load_data()
+    data = db.load_data(include_sales=False)
     data["store"]["is_open"] = is_open_now(data["store"])
     sync_store_session_now(data["store"])
     # O token do agente de impressão é uma senha: nunca vai para o público.
@@ -720,7 +737,7 @@ def get_data():
 @app.route("/api/item/<int:item_id>", methods=["GET"])
 def get_item(item_id):
     """Dados públicos de um único produto, para a página de detalhe."""
-    data = db.load_data()
+    data = db.load_data(include_sales=False)
     item = next((i for i in data["items"] if int(i["id"]) == item_id), None)
     if not item:
         return jsonify({"ok": False, "error": "Produto não encontrado."}), 404
@@ -738,7 +755,7 @@ def get_item(item_id):
 @app.route("/api/promotion/<int:promo_id>", methods=["GET"])
 def get_promotion(promo_id):
     """Dados públicos de uma única promoção, para a página de detalhe."""
-    data = db.load_data()
+    data = db.load_data(include_sales=False)
     promo = next((p for p in data["promotions"] if int(p["id"]) == promo_id), None)
     if not promo:
         return jsonify({"ok": False, "error": "Promoção não encontrada."}), 404
@@ -898,7 +915,7 @@ def create_order():
     WhatsApp, só para que o agente de impressão da pizzaria possa
     imprimir o ticket. Não precisa de login — é o mesmo pedido que o
     cliente já vai mandar por WhatsApp de qualquer forma."""
-    data = db.load_data()
+    data = db.load_data(include_sales=False)
     store = data["store"]
     sync_store_session_now(store)
     if not is_open_now(store):
@@ -1459,13 +1476,32 @@ def courier_push_key():
         return jsonify({"ok": True, "enabled": False})
 
 
+# O servidor faz POST no endpoint da inscrição: só aceita os serviços de push
+# dos navegadores (evita SSRF contra hosts internos ou arbitrários).
+_PUSH_HOSTS_EXACT = {"fcm.googleapis.com", "updates.push.services.mozilla.com"}
+_PUSH_HOST_SUFFIXES = (".push.apple.com", ".notify.windows.com")
+
+
+def _is_push_endpoint_allowed(endpoint):
+    try:
+        parts = urlsplit(endpoint)
+        host = (parts.hostname or "").lower()
+        port = parts.port
+    except ValueError:
+        return False
+    if parts.scheme != "https" or parts.username or parts.password or port not in (None, 443):
+        return False
+    return host in _PUSH_HOSTS_EXACT or host.endswith(_PUSH_HOST_SUFFIXES)
+
+
 @app.route("/api/entregador/push/subscribe", methods=["POST"])
 @require_courier
 def courier_push_subscribe():
     sub = request.get_json(silent=True) or {}
     endpoint = str(sub.get("endpoint") or "")
     keys = sub.get("keys") or {}
-    if not endpoint.startswith("https://") or len(endpoint) > 1000 or not keys.get("p256dh") or not keys.get("auth"):
+    if (len(endpoint) > 1000 or not _is_push_endpoint_allowed(endpoint)
+            or not keys.get("p256dh") or not keys.get("auth")):
         return jsonify({"ok": False, "error": "Inscrição inválida."}), 400
     clean = {"endpoint": endpoint, "keys": {"p256dh": str(keys["p256dh"]), "auth": str(keys["auth"])}}
     db.save_push_sub(endpoint, json.dumps(clean))
@@ -1703,7 +1739,32 @@ def update_data():
             return jsonify({"ok": False, "error": f'A borda "{borda.get("name")}" tem preço inválido.'}), 400
     new_data["store"] = store_in
 
+    # Produtos malformados davam 500 / IntegrityError ao gravar: confere antes
+    # de tocar no banco (lista de objetos, id inteiro único, preços finitos).
+    if not isinstance(new_data["items"], list):
+        return jsonify({"ok": False, "error": "Lista de produtos inválida."}), 400
+    seen_item_ids = set()
     for item in new_data["items"]:
+        if not isinstance(item, dict):
+            return jsonify({"ok": False, "error": "Existe um produto inválido."}), 400
+        label = str(item.get("name") or item.get("id") or "?")[:60]
+        raw_id = item.get("id")
+        try:
+            if isinstance(raw_id, bool) or (isinstance(raw_id, float) and not raw_id.is_integer()):
+                raise ValueError
+            item_id = int(raw_id)
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"ok": False, "error": f'O produto "{label}" tem um código (id) inválido.'}), 400
+        if item_id in seen_item_ids:
+            return jsonify({"ok": False, "error": f'O código (id) {item_id} está repetido em dois produtos.'}), 400
+        seen_item_ids.add(item_id)
+        item["id"] = item_id
+        for field in ("price", "promo_extra"):
+            try:
+                if not math.isfinite(float(item.get(field, 0) or 0)):
+                    raise ValueError
+            except (TypeError, ValueError, OverflowError):
+                return jsonify({"ok": False, "error": f'O produto "{label}" tem um valor inválido em "{field}".'}), 400
         item.setdefault("promo_extra", 0)
 
     for promo in new_data["promotions"]:
@@ -2057,7 +2118,19 @@ def upload_image():
             "error": "Formato não permitido. Use PNG, JPG, JPEG, WEBP ou GIF."
         }), 400
 
-    extension = secure_filename(file.filename).rsplit(".", 1)[1].lower()
+    # A extensão vem do nome original (já validado por is_allowed_image; o
+    # secure_filename apagava nomes não-ASCII e rsplit(...)[1] dava IndexError)
+    # e o conteúdo precisa ter a assinatura real de uma imagem permitida.
+    # Se a assinatura é de outro formato (ex.: .webp salvo como .jpg), vale a
+    # assinatura, para o arquivo ser servido com o tipo certo.
+    head = file.stream.read(16)
+    file.stream.seek(0)
+    detected = _detect_image_extension(head)
+    if not detected:
+        return jsonify({"ok": False, "error": "O arquivo não parece ser uma imagem válida (PNG, JPG, WEBP ou GIF)."}), 400
+    extension = file.filename.rsplit(".", 1)[1].lower()
+    if _IMAGE_EXTENSION_FAMILY.get(extension) != detected:
+        extension = detected
     filename = f"{uuid.uuid4().hex}.{extension}"
     destination = os.path.join(UPLOAD_FOLDER, filename)
 

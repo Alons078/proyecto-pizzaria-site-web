@@ -7,7 +7,7 @@ Fluxo (chamado por POST /api/calcular-tarifa em app.py):
    rua/número; o front-end (static/cart.js) monta o endereço final como
    "<rua>, <zona>".
 2. Este módulo só confere se o texto contém o nome de uma zona conhecida
-   (comparação por substring, sem acentos nem maiúsculas/minúsculas) e
+   (comparação por palavra inteira, sem acentos nem maiúsculas/minúsculas) e
    devolve a taxa fixa correspondente. Não há chamada a nenhuma API externa
    nem cálculo de distância — é só combinar texto.
 3. Se o endereço não citar nenhuma zona conhecida, não há taxa automática:
@@ -106,10 +106,11 @@ NEIGHBORHOOD_FEES = _load_neighborhood_fees()
 
 def match_neighborhood_fee(address):
     """Devolve (zona, taxa) se o endereço citar uma zona com taxa fixa,
-    senão None. Comparação por substring, sem acentos nem maiúsculas."""
+    senão None. Comparação por PALAVRA inteira ("ramos" não casa com
+    "Paramos"), sem acentos nem maiúsculas."""
     key = normalize_address(address)
     for bairro, taxa in NEIGHBORHOOD_FEES:
-        if bairro in key:
+        if re.search(rf"(?<!\w){re.escape(bairro)}(?!\w)", key):
             return bairro, taxa
     return None
 

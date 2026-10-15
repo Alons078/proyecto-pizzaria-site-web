@@ -1,6 +1,27 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+
+# Entornos virtuales y variables locales (nunca subir secretos)
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Base de datos SQLite (los datos viven en el disco de Render, no en git)
 pizzaria.db
 pizzaria.db-wal
 pizzaria.db-shm
+pizzaria.db-journal
+
+# Resto de la migración antigua de data.json
 data.json.migrado
+
+# Logs, editores y sistema operativo
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

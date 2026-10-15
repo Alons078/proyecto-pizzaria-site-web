@@ -175,24 +175,53 @@ function cartRegisterOrder(cart, checkout) {
     notes: checkout.notes,
     troco_paid_with: checkout.trocoPaidWith,
   };
-  // Devolve uma Promise com o código de acompanhamento (ou null se falhar).
+  // Devolve uma Promise com o código de acompanhamento (ou null se falhar;
+  // nesse caso o motivo fica em cartRegisterError, para cartGoToTracking avisar).
+  cartRegisterError = "";
   return fetch("/api/pedidos", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   })
-    .then((res) => res.json())
-    .then((result) => {
+    .then((res) => res.json().catch(() => null).then((result) => ({ res, result })))
+    .then(({ res, result }) => {
       if (result && result.ok && result.track_token) {
         cartRememberOrder(result.track_token);
         return result.track_token;
       }
+      cartRegisterError = (result && result.error) || `O servidor não respondeu direito (erro ${res.status}).`;
       return null;
     })
     .catch((error) => {
       console.error("Não foi possível registrar o pedido para impressão:", error);
+      cartRegisterError = "Sem conexão com o servidor.";
       return null;
     });
+}
+
+/* Motivo da última falha ao registrar o pedido ("" se deu certo). */
+let cartRegisterError = "";
+
+/* O pedido já foi pelo WhatsApp, mas não ficou registrado (sem acompanhamento
+ * nem impressão automática): avisa o cliente, sem bloquear nada. */
+function cartShowRegisterAlert(reason) {
+  document.querySelectorAll(".order-success-overlay").forEach((el) => el.remove());
+  if (document.getElementById("order-register-alert")) return;
+  const box = document.createElement("div");
+  box.id = "order-register-alert";
+  box.className = "order-register-alert";
+  box.setAttribute("role", "alert");
+  const text = document.createElement("p");
+  text.textContent = "Seu pedido foi enviado pelo WhatsApp, mas não ficou registrado no acompanhamento online. "
+    + (reason ? reason + " " : "")
+    + "Confirme o pedido com a pizzaria pelo WhatsApp.";
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "item-toggle-all";
+  close.textContent = "Entendi";
+  close.addEventListener("click", () => box.remove());
+  box.append(text, close);
+  document.body.appendChild(box);
 }
 
 /* ---------- acompanhamento do pedido (confirmado → pronto → em rota) ----------
@@ -238,6 +267,7 @@ function cartGoToTracking(orderPromise) {
 
   Promise.all([Promise.resolve(orderPromise), minDelay]).then(([token]) => {
     if (token) window.location.href = `/pedido/${token}`;
+    else cartShowRegisterAlert(cartRegisterError);
   });
 }
 
