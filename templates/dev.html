@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="/static/entregador-icon-192.png">
+<title>Avisos para el admin · Rey Pizzaria</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Space+Mono&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v=20261015b">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><span>Área del desarrollador</span></div>
+  <div class="admin-nav-group">
+    <a class="admin-nav" href="/admin">ir al panel →</a>
+    <form method="post" action="/dev/logout"><button type="submit" class="admin-nav admin-logout-btn">salir</button></form>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel">
+    <h2 id="dev-form-title">Nuevo aviso</h2>
+    <p class="field-hint dev-hint">Cada aviso es una página de la ventana "Novidades do sistema" que el admin ve al entrar a /admin (solo los que aún no leyó). Escríbelos en portugués, para el dueño.</p>
+    <div class="field">
+      <label for="dev-title">Título (opcional)</label>
+      <input type="text" id="dev-title" maxlength="80">
+    </div>
+    <div class="field">
+      <label for="dev-text">Texto</label>
+      <textarea id="dev-text" maxlength="800" placeholder="Ex.: Agora o cardápio carrega mais rápido."></textarea>
+      <p class="field-hint" id="dev-count">0 / 800</p>
+    </div>
+    <label class="dev-check"><input type="checkbox" id="dev-active" checked> Activo (el admin lo puede ver)</label>
+    <div class="print-token-row">
+      <button type="button" id="dev-save-btn">Publicar</button>
+      <button type="button" id="dev-cancel-btn" hidden>Cancelar edición</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Avisos publicados</h2>
+    <div class="print-token-row">
+      <button type="button" id="dev-preview-btn">👁 Previsualizar la ventana</button>
+      <button type="button" id="dev-resend-btn">↺ Reenviar todos al admin</button>
+    </div>
+    <p class="field-hint dev-hint">"Reenviar" marca todos como no leídos: el admin los verá otra vez al entrar. Si editas el título o el texto de un aviso, ese aviso se reenvía solo.</p>
+    <div id="dev-list"></div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/novidades.js?v=20261015b"></script>
+<script src="/static/dev.js?v=20261015b"></script>
+</body>
+</html>
