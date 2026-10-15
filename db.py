@@ -61,6 +61,17 @@ CREATE TABLE IF NOT EXISTS courier_access (
     password TEXT NOT NULL DEFAULT ''
 );
 
+-- Avisos do desenvolvedor para o administrador (novidades do sistema).
+-- Tabela própria: o "Salvar" do cardápio não mexe nela.
+CREATE TABLE IF NOT EXISTS dev_notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    seen INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS today_post (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     title TEXT NOT NULL DEFAULT '',
@@ -212,6 +223,8 @@ def init_db():
     data.json antigo, migra os dados de lá uma única vez."""
     conn = get_connection()
     conn.executescript(SCHEMA)
+    # Versão de teste antiga (popup para clientes), já descartada.
+    conn.execute("DROP TABLE IF EXISTS announcement")
     conn.commit()
 
     # Se o banco já existia de uma versão anterior (antes da coluna
@@ -1262,6 +1275,32 @@ def set_print_agent_token(token):
         conn.close()
 
 
+def migrate_plaintext_shift_passwords(hash_fn):
+    """Troca por hash as senhas de turno que ainda estão em texto puro (vindas
+    do data.json antigo ou de versões antigas). Só mexe na linha se ela ainda
+    tem o mesmo texto puro (não pisa numa troca feita pelo admin no meio).
+    Devolve quantas migrou."""
+    conn = get_connection()
+    try:
+        migrated = 0
+        for row in conn.execute("SELECT id, password FROM shifts").fetchall():
+            plain = row["password"] or ""
+            if not plain or plain.startswith(("pbkdf2:", "scrypt:")):
+                continue
+            new_hash = hash_fn(plain)
+            if not new_hash or new_hash == plain:
+                continue
+            cur = conn.execute(
+                "UPDATE shifts SET password = ? WHERE id = ? AND password = ?",
+                (new_hash, row["id"], plain),
+            )
+            migrated += cur.rowcount
+        conn.commit()
+        return migrated
+    finally:
+        conn.close()
+
+
 def get_courier_password():
     """Hash da senha do entregador ('' se o admin ainda não definiu.)"""
     conn = get_connection()
@@ -1280,6 +1319,92 @@ def set_courier_password(password_hash):
             "INSERT OR REPLACE INTO courier_access (id, password) VALUES (1, ?)",
             (password_hash,),
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ---------- avisos do desenvolvedor para o administrador ----------
+
+def _dev_notice_row(r):
+    return {
+        "id": r["id"], "title": r["title"], "text": r["text"],
+        "active": bool(r["active"]), "seen": bool(r["seen"]), "created_at": r["created_at"],
+    }
+
+
+def list_dev_notices(only_unseen=False):
+    """Todos os avisos (ordem de criação). `only_unseen`: só os ativos que o
+    administrador ainda não viu."""
+    sql = "SELECT * FROM dev_notices"
+    if only_unseen:
+        sql += " WHERE active = 1 AND seen = 0"
+    conn = get_connection()
+    try:
+        return [_dev_notice_row(r) for r in conn.execute(sql + " ORDER BY id").fetchall()]
+    finally:
+        conn.close()
+
+
+def add_dev_notice(title, text, active=True):
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "INSERT INTO dev_notices (title, text, active, seen, created_at) VALUES (?, ?, ?, 0, ?)",
+            (title, text, 1 if active else 0, datetime_now_iso()),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def update_dev_notice(notice_id, title, text, active):
+    """Atualiza um aviso. Se título ou texto mudaram, volta a ser 'não visto'
+    para o administrador ler a versão nova. Devolve False se não existe."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT title, text FROM dev_notices WHERE id = ?", (notice_id,)).fetchone()
+        if not row:
+            return False
+        changed = row["title"] != title or row["text"] != text
+        conn.execute(
+            "UPDATE dev_notices SET title = ?, text = ?, active = ?, seen = CASE WHEN ? THEN 0 ELSE seen END WHERE id = ?",
+            (title, text, 1 if active else 0, 1 if changed else 0, notice_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_dev_notice(notice_id):
+    conn = get_connection()
+    try:
+        cur = conn.execute("DELETE FROM dev_notices WHERE id = ?", (notice_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def mark_dev_notices_seen(ids):
+    if not ids:
+        return
+    conn = get_connection()
+    try:
+        conn.execute(
+            f"UPDATE dev_notices SET seen = 1 WHERE id IN ({','.join('?' * len(ids))})", ids
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reset_dev_notices_seen():
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE dev_notices SET seen = 0")
         conn.commit()
     finally:
         conn.close()

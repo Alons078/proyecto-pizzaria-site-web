@@ -13,13 +13,14 @@ static/uploads/
 
 Variáveis de ambiente usadas em produção (configure-as no Render):
 - ADMIN_PASSWORD  -> senha do painel /admin (OBRIGATÓRIA: sem ela o painel fica bloqueado)
+- DEV_PASSWORD    -> senha da área do desenvolvedor /dev (avisos para o admin; sem ela /dev fica bloqueado)
 - SECRET_KEY      -> chave para assinar os cookies de sessão
 - PORT            -> porta em que o servidor escuta (o Render define sozinho)
 - FLASK_DEBUG     -> "1" para ligar o modo debug (deixe desligado em produção)
 - NEIGHBORHOOD_FEES -> taxas fixas de entrega por zona (veja delivery_fee.py)
 """
 
-from flask import Flask, jsonify, request, render_template, session, redirect, url_for
+from flask import Flask, jsonify, request, render_template, session, redirect, url_for, g
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
@@ -29,7 +30,9 @@ import uuid
 import hashlib
 import hmac
 import secrets
+import ipaddress
 import json
+import math
 import base64
 import threading
 import time
@@ -93,15 +96,24 @@ UPLOAD_FOLDER = (
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Cookie de sessão só por HTTPS. O Render define RENDER=true sozinho; em testes
+# locais por http:// fica desligado. SESSION_COOKIE_SECURE=1/0 força o valor.
+app.config["SESSION_COOKIE_SECURE"] = (
+    os.environ.get("SESSION_COOKIE_SECURE", "1" if os.environ.get("RENDER") else "0") == "1"
+)
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+DEV_PASSWORD = os.environ.get("DEV_PASSWORD")
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(16))
 
 if not ADMIN_PASSWORD:
     print("AVISO: a variável de ambiente ADMIN_PASSWORD não foi definida — "
           "o painel /admin ficará bloqueado. Defina ADMIN_PASSWORD no Render.")
+if not DEV_PASSWORD:
+    print("AVISO: a variável de ambiente DEV_PASSWORD não foi definida — "
+          "a área /dev (avisos para o admin) ficará bloqueada.")
 if not os.environ.get("SECRET_KEY"):
     print("AVISO: a variável de ambiente SECRET_KEY não foi definida — "
           "as sessões (login) serão invalidadas sempre que o servidor reiniciar.")
@@ -121,6 +133,16 @@ def serve_upload(filename):
 
 
 db.init_db()
+
+# Senhas de turno em texto puro (data.json antigo / bancos antigos) viram hash
+# aqui, uma vez, no arranque. Se falhar, o app continua subindo: o login ainda
+# aceita texto puro (check_shift_password) e tenta de novo no próximo arranque.
+try:
+    _n_migrated = db.migrate_plaintext_shift_passwords(hash_shift_password)
+    if _n_migrated:
+        print(f"Senhas de turno migradas de texto puro para hash: {_n_migrated}.")
+except Exception as _exc:  # noqa: BLE001
+    print(f"AVISO: não foi possível migrar senhas de turno para hash: {_exc!r}")
 
 
 def is_allowed_image(filename):
@@ -233,6 +255,17 @@ def require_admin(view):
     return wrapped
 
 
+def require_dev(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("is_dev"):
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "Sessão expirada. Entre novamente em /dev."}), 401
+            return redirect(url_for("dev_login"))
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def require_print_agent(view):
     """Protege as rotas que o programinha da impressora térmica usa.
     Ele não faz login como o admin; manda o token num cabeçalho."""
@@ -308,13 +341,65 @@ _rate_buckets = {}   # "chave:ip" -> [timestamps das últimas requisições]
 _rate_hits_since_cleanup = 0
 
 
+def _parse_trusted_proxies():
+    raw = os.environ.get("TRUSTED_PROXIES", "").strip()
+    if not raw:
+        return None
+    try:
+        n = int(raw)
+        if 0 <= n <= 10:
+            return n
+    except ValueError:
+        pass
+    print(f"AVISO: TRUSTED_PROXIES={raw!r} inválido (use um inteiro de 0 a 10) — ignorado.")
+    return None
+
+
+# Quantos proxies confiáveis ficam na frente do app (cada um ACRESCENTA o IP de
+# quem falou com ele no fim do X-Forwarded-For). None = não configurado (usa o
+# primeiro valor, que o cliente consegue falsificar). 0 = sem proxy (usa
+# remote_addr). N >= 1 = usa o N-ésimo valor contando da DIREITA, que é o que
+# o último proxy confiável escreveu e o cliente não controla.
+TRUSTED_PROXIES = _parse_trusted_proxies()
+_ip_debug_left = 30 if os.environ.get("IP_DEBUG") == "1" else 0
+
+if TRUSTED_PROXIES is None:
+    print("AVISO: TRUSTED_PROXIES não definido — o limite de tentativas usa o primeiro IP do "
+          "X-Forwarded-For, que pode ser falsificado. Ligue IP_DEBUG=1 uma vez para ver a cadeia "
+          "de IPs nos logs e então defina TRUSTED_PROXIES.")
+
+
 def _client_ip():
-    """IP de quem fez a requisição. O Render fica atrás de um proxy, então o
-    IP real vem no cabeçalho X-Forwarded-For (o primeiro da lista)."""
+    """IP de quem fez a requisição, usado só pelo limite de tentativas.
+    O Render fica atrás de proxies que ACRESCENTAM o IP no fim do
+    X-Forwarded-For sem apagar o que o cliente mandou: o primeiro valor é
+    falsificável, o da direita (escrito pelo proxy) não. Ver TRUSTED_PROXIES."""
+    cached = getattr(g, "_client_ip", None)
+    if cached:
+        return cached
+    global _ip_debug_left
     forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr or "desconhecido"
+    parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+    remote = request.remote_addr or "desconhecido"
+    if not parts:
+        ip = remote
+    elif TRUSTED_PROXIES is None:
+        ip = parts[0]                      # comportamento antigo
+    elif TRUSTED_PROXIES == 0:
+        ip = remote
+    else:
+        # Se vieram menos valores que o esperado, nunca devolve o IP do proxy
+        # (todos os clientes cairiam no mesmo balde): cai no primeiro valor.
+        ip = parts[-TRUSTED_PROXIES] if len(parts) >= TRUSTED_PROXIES else parts[0]
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            ip = remote
+    if _ip_debug_left > 0:
+        _ip_debug_left -= 1
+        app.logger.warning("IP_DEBUG xff=%r remote_addr=%s trusted=%s -> %s", forwarded, remote, TRUSTED_PROXIES, ip)
+    g._client_ip = ip
+    return ip
 
 
 def _rate_limited(key, max_hits, window_seconds):
@@ -379,6 +464,49 @@ def _api_general_rate_limit():
     return None
 
 
+# Cabeçalhos de segurança em todas as respostas. A CSP vai em modo
+# Report-Only: o navegador NÃO bloqueia nada, só avisa (POST /csp-report ->
+# log "CSP_REPORT"). script-src sem 'unsafe-inline' de propósito: assim os
+# <script> inline de produto.html/promocao.html aparecem nos relatórios.
+# worker-src blob: é o Worker do live.js (relógio da cozinha em 2º plano).
+CSP_REPORT_ONLY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "media-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+    "report-uri /csp-report",
+])
+
+
+@app.after_request
+def _security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if response.mimetype == "text/html":
+        response.headers.setdefault("Content-Security-Policy-Report-Only", CSP_REPORT_ONLY)
+    return response
+
+
+@app.route("/csp-report", methods=["POST"])
+@rate_limit("csp_report", max_hits=30, window_seconds=600)
+def csp_report():
+    """Recebe os avisos da CSP em modo Report-Only e só escreve no log."""
+    if (request.content_length or 0) <= 10000:
+        text = request.get_data(cache=False, as_text=True)[:800]
+        app.logger.warning("CSP_REPORT %s", text.replace("\n", " ").replace("\r", " "))
+    return "", 204
+
+
 # ---------- páginas ----------
 
 @app.route("/")
@@ -413,6 +541,121 @@ def admin_logout():
 @require_admin
 def admin():
     return render_template("admin.html")
+
+
+# ---------- área do desenvolvedor: avisos para o administrador ----------
+
+@app.route("/dev/login", methods=["GET"])
+def dev_login():
+    if session.get("is_dev"):
+        return redirect(url_for("dev"))
+    return render_template("admin_login.html", error=None, login_title="Área do desenvolvedor",
+                           login_action="/dev/login", login_back="/admin", login_back_text="← ir para o painel")
+
+
+@app.route("/dev/login", methods=["POST"])
+@rate_limit("dev_login", max_hits=8, window_seconds=300)
+def dev_login_submit():
+    password = (request.form.get("password") or "").strip()
+    if DEV_PASSWORD and password and hmac.compare_digest(password, DEV_PASSWORD):
+        session["is_dev"] = True
+        return redirect(url_for("dev"))
+    return render_template("admin_login.html", error="Senha incorreta.", login_title="Área do desenvolvedor",
+                           login_action="/dev/login", login_back="/admin", login_back_text="← ir para o painel"), 401
+
+
+@app.route("/dev/logout", methods=["POST"])
+def dev_logout():
+    session.pop("is_dev", None)
+    return redirect(url_for("dev_login"))
+
+
+@app.route("/dev")
+@require_dev
+def dev():
+    return render_template("dev.html")
+
+
+NOTICE_TITLE_MAX = 80
+NOTICE_TEXT_MAX = 800
+
+
+def _parse_notice_body():
+    """Valida título/texto/ativo vindos do /dev. Devolve (dados, None) ou (None, resposta de erro)."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return None, (jsonify({"ok": False, "error": "Dados inválidos."}), 400)
+    title = str(body.get("title") or "").strip()
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return None, (jsonify({"ok": False, "error": "Escreva o texto do aviso."}), 400)
+    if len(title) > NOTICE_TITLE_MAX:
+        return None, (jsonify({"ok": False, "error": f"O título pode ter no máximo {NOTICE_TITLE_MAX} caracteres."}), 400)
+    if len(text) > NOTICE_TEXT_MAX:
+        return None, (jsonify({"ok": False, "error": f"O texto pode ter no máximo {NOTICE_TEXT_MAX} caracteres."}), 400)
+    return (title, text, body.get("active") is not False), None
+
+
+@app.route("/api/dev/novedades", methods=["GET"])
+@require_dev
+def dev_list_notices():
+    return jsonify({"ok": True, "notices": db.list_dev_notices()})
+
+
+@app.route("/api/dev/novedades", methods=["POST"])
+@require_dev
+def dev_create_notice():
+    parsed, error = _parse_notice_body()
+    if error:
+        return error
+    notice_id = db.add_dev_notice(*parsed)
+    return jsonify({"ok": True, "id": notice_id})
+
+
+@app.route("/api/dev/novedades/<int:notice_id>", methods=["POST"])
+@require_dev
+def dev_update_notice(notice_id):
+    parsed, error = _parse_notice_body()
+    if error:
+        return error
+    if not db.update_dev_notice(notice_id, *parsed):
+        return jsonify({"ok": False, "error": "Aviso não encontrado."}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/dev/novedades/<int:notice_id>/excluir", methods=["POST"])
+@require_dev
+def dev_delete_notice(notice_id):
+    if not db.delete_dev_notice(notice_id):
+        return jsonify({"ok": False, "error": "Aviso não encontrado."}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/dev/novedades/reenviar", methods=["POST"])
+@require_dev
+def dev_resend_notices():
+    """Marca todos como 'não vistos': o admin os verá de novo ao entrar."""
+    db.reset_dev_notices_seen()
+    return jsonify({"ok": True})
+
+
+# Lado do administrador: só lê os avisos novos e marca como vistos.
+@app.route("/api/admin/novedades", methods=["GET"])
+@require_admin
+def admin_get_notices():
+    notices = [{"id": n["id"], "title": n["title"], "text": n["text"]} for n in db.list_dev_notices(only_unseen=True)]
+    return jsonify({"ok": True, "notices": notices})
+
+
+@app.route("/api/admin/novedades/vistas", methods=["POST"])
+@require_admin
+def admin_mark_notices_seen():
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids")
+    if not isinstance(ids, list) or len(ids) > 100 or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+        return jsonify({"ok": False, "error": "Dados inválidos."}), 400
+    db.mark_dev_notices_seen(ids)
+    return jsonify({"ok": True})
 
 
 @app.route("/funcionarios")
@@ -530,6 +773,122 @@ def calcular_tarifa():
 # ---------- pedidos do cliente (fila de impressão térmica) ----------
 
 MAX_ORDER_ITEMS = 40
+MAX_UNIT_PRICE = 100000.0   # teto por unidade (R$): barra 1e308 e afins
+MAX_TROCO = 100000.0
+
+
+def _price_enforced():
+    """PRICE_ENFORCE=1 -> o servidor usa o preço que ele mesmo calculou.
+    Sem a variável (padrão) fica em modo observação: grava o preço do
+    navegador e só registra no log quando o cálculo do servidor difere."""
+    return os.environ.get("PRICE_ENFORCE", "") == "1"
+
+
+def _pizza_price_for_size(pizza, size, sizes):
+    """Mesma fórmula de pizzaPriceForSize() em static/produto.js."""
+    own = float(pizza.get("price") or 0)
+    if size is None:
+        return own
+    if not own:
+        return float(size.get("price") or 0)
+    base = sizes[0] if sizes else None
+    return own + float(size.get("price") or 0) - float((base or {}).get("price") or 0)
+
+
+def price_line(entry, data):
+    """Recalcula o preço UNITÁRIO de uma linha do carrinho pelo cardápio do
+    banco, com a mesma fórmula de static/produto.js (item/tamanho/meia a
+    meia/borda) e static/promocao.js (preço + extras dos sabores + bordas).
+
+    Devolve {"price": float|None, "issue": str|None, "hard": bool}.
+    - price None  -> não deu para calcular com certeza (issue explica): quem
+      chama deve usar o preço do navegador e logar, nunca rejeitar por isso.
+    - hard=True   -> problema CERTO (produto/promoção não existe ou esgotado).
+    """
+    def unsure(issue):
+        return {"price": None, "issue": issue, "hard": False}
+
+    def hard(issue):
+        return {"price": None, "issue": issue, "hard": True}
+
+    kind = entry.get("type")
+    sel = entry.get("sel")
+    try:
+        ref_id = int(entry.get("id"))
+    except (TypeError, ValueError, OverflowError):
+        return unsure("no_id")
+    items_by_id = {int(i["id"]): i for i in data.get("items", [])}
+    items_by_str = {str(i["id"]): i for i in data.get("items", [])}
+    bordas = {str(b.get("id")): b for b in (data.get("store", {}).get("bordas") or []) if isinstance(b, dict)}
+
+    def borda_price(borda_id):
+        if borda_id is None or borda_id == "":
+            return 0.0
+        borda = bordas.get(str(borda_id))
+        return None if borda is None else float(borda.get("price") or 0)
+
+    if kind == "item":
+        item = items_by_id.get(ref_id)
+        if item is None:
+            return hard("item_missing")
+        if item.get("available") is False:
+            return hard("item_unavailable")
+        if not isinstance(sel, dict):
+            return unsure("no_sel")
+        sizes = data.get("pizza_sizes") or []
+        if item.get("category") == "pizza" and sizes:
+            size = next((s for s in sizes if str(s["id"]) == str(sel.get("size_id"))), None)
+            if size is None:
+                return unsure("unknown_size")
+            split_ids = sel.get("split_ids")
+            if split_ids:
+                if not isinstance(split_ids, list) or not 2 <= len(split_ids) <= 3:
+                    return unsure("bad_split")
+                prices = []
+                for fid in split_ids:
+                    flavor = items_by_str.get(str(fid))
+                    if flavor is None or flavor.get("category") != "pizza":
+                        return unsure("unknown_flavor")
+                    if flavor.get("available") is False and int(flavor["id"]) != ref_id:
+                        return hard("item_unavailable")
+                    prices.append(_pizza_price_for_size(flavor, size, sizes))
+                price = max(prices)
+            else:
+                price = _pizza_price_for_size(item, size, sizes)
+        else:
+            price = float(item.get("price") or 0)
+        extra = borda_price(sel.get("borda_id"))
+        if extra is None:
+            return unsure("unknown_borda")
+        return {"price": round(price + extra, 2), "issue": None, "hard": False}
+
+    if kind == "promotion":
+        promo = next((p for p in data.get("promotions", []) if int(p["id"]) == ref_id), None)
+        if promo is None:
+            return hard("promo_missing")
+        slots = promo.get("slots") or []
+        if not isinstance(sel, dict) or not isinstance(sel.get("slots"), list):
+            return unsure("no_sel")
+        if len(sel["slots"]) != len(slots):
+            return unsure("bad_sel")
+        total = float(promo.get("price") or 0)
+        for chosen in sel["slots"]:
+            if not isinstance(chosen, dict) or not isinstance(chosen.get("ids"), list) or not 1 <= len(chosen["ids"]) <= 2:
+                return unsure("bad_sel")
+            for fid in chosen["ids"]:
+                flavor = items_by_str.get(str(fid))
+                if flavor is None:
+                    return unsure("unknown_flavor")
+                if flavor.get("available") is False:
+                    return hard("item_unavailable")
+                total += float(flavor.get("promo_extra") or 0)
+            extra = borda_price(chosen.get("borda_id"))
+            if extra is None:
+                return unsure("unknown_borda")
+            total += extra
+        return {"price": round(total, 2), "issue": None, "hard": False}
+
+    return unsure("no_type")
 
 
 @app.route("/api/pedidos", methods=["POST"])
@@ -539,7 +898,8 @@ def create_order():
     WhatsApp, só para que o agente de impressão da pizzaria possa
     imprimir o ticket. Não precisa de login — é o mesmo pedido que o
     cliente já vai mandar por WhatsApp de qualquer forma."""
-    store = db.load_data()["store"]
+    data = db.load_data()
+    store = data["store"]
     sync_store_session_now(store)
     if not is_open_now(store):
         return jsonify({"ok": False, "error": "A loja está fechada agora. Não é possível fazer pedidos fora do horário de funcionamento."}), 403
@@ -549,28 +909,78 @@ def create_order():
     if not isinstance(cart, list) or not cart or len(cart) > MAX_ORDER_ITEMS:
         return jsonify({"ok": False, "error": "Carrinho inválido."}), 400
 
+    enforce = _price_enforced()
     order_items = []
     total = 0.0
+    min_check_subtotal = 0.0
+    n_ok = n_diff = n_unsure = 0
     for entry in cart:
         if not isinstance(entry, dict):
             return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
+        raw_qty = entry.get("qty")
+        if isinstance(raw_qty, float) and raw_qty.is_integer():
+            raw_qty = int(raw_qty)
+        if type(raw_qty) is not int:
+            return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
         try:
-            qty = int(entry.get("qty"))
+            qty = raw_qty
             unit_price = float(entry.get("unit_price"))
             # Quantas pizzas tem em UMA unidade desta linha (0 para bebida/salgado,
             # 1 para uma pizza normal, 2 para uma promoção de "2 pizzas" etc.).
             # Usado só para o resumo "pizzas vendidas por tipo de entrega" do admin.
             pizza_count = int(entry.get("pizza_count") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
-        if qty <= 0 or qty > 500 or unit_price < 0 or pizza_count < 0 or pizza_count > 20:
+        # isfinite: o JSON do Flask aceita NaN/Infinity e eles passariam pelas
+        # comparações abaixo (NaN < 0 é False) e acabariam gravados / dando 500.
+        if (not math.isfinite(unit_price) or qty <= 0 or qty > 500 or unit_price < 0
+                or unit_price > MAX_UNIT_PRICE or pizza_count < 0 or pizza_count > 20):
             return jsonify({"ok": False, "error": "Item de pedido inválido."}), 400
+
+        # Preço calculado pelo servidor (ver price_line). Modo observação: o
+        # que vale continua sendo o preço do navegador; só logamos diferenças.
+        # Com PRICE_ENFORCE=1 vale o preço do servidor. Se não dá para calcular
+        # com certeza, NUNCA rejeitamos: usa o do navegador e loga.
+        priced = price_line(entry, data)
+        if priced["price"] is None:
+            n_unsure += 1
+            app.logger.warning("PRICE_UNSURE issue=%s hard=%s type=%s id=%s client=%.2f sel=%s",
+                               priced["issue"], priced["hard"], entry.get("type"), entry.get("id"),
+                               unit_price, json.dumps(entry.get("sel"), ensure_ascii=False)[:300])
+            if priced["hard"] and enforce:
+                return jsonify({"ok": False, "error": "Um item do carrinho não está mais disponível. Atualize o cardápio."}), 409
+        elif abs(priced["price"] - unit_price) > 0.005:
+            n_diff += 1
+            app.logger.warning("PRICE_DIFF type=%s id=%s client=%.2f server=%.2f enforce=%s sel=%s",
+                               entry.get("type"), entry.get("id"), unit_price, priced["price"], enforce,
+                               json.dumps(entry.get("sel"), ensure_ascii=False)[:300])
+            if enforce:
+                unit_price = priced["price"]
+        else:
+            n_ok += 1
+        entry_server_price = priced["price"] if priced["price"] is not None else unit_price
+
         name = str(entry.get("name") or "")[:200]
         order_items.append({"name": name, "qty": qty, "unit_price": round(unit_price, 2), "pizza_count": pizza_count})
         total += unit_price * qty
+        # Subtotal pro pedido mínimo: usa o preço do servidor quando existe
+        # (já vale em modo observação), senão o do navegador.
+        min_check_subtotal += entry_server_price * qty
 
     if not order_items:
         return jsonify({"ok": False, "error": "Carrinho vazio."}), 400
+
+    app.logger.warning("PRICE_CHECK mode=%s lines=%d ok=%d diff=%d unsure=%d",
+                       "enforce" if enforce else "observe", len(order_items), n_ok, n_diff, n_unsure)
+
+    # Pedido mínimo (só os itens; a taxa de entrega não conta).
+    try:
+        min_order = float(store.get("min_order") or 0)
+    except (TypeError, ValueError):
+        min_order = 0.0
+    if min_order > 0 and round(min_check_subtotal, 2) < round(min_order, 2):
+        return jsonify({"ok": False, "code": "min_order",
+                        "error": f"Pedido mínimo de R$ {min_order:.2f}".replace(".", ",") + " (sem contar a taxa de entrega)."}), 400
 
     delivery_type = str(body.get("delivery_type") or "")[:60]
     address = str(body.get("address") or "")[:300]
@@ -593,7 +1003,10 @@ def create_order():
     if raw_troco is not None and payment_method == "Dinheiro":
         try:
             troco_paid_with = round(float(raw_troco), 2)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            troco_paid_with = None
+        # NaN/inf/valores absurdos não são "troco para" válidos.
+        if troco_paid_with is not None and (not math.isfinite(troco_paid_with) or troco_paid_with > MAX_TROCO):
             troco_paid_with = None
         # Se o valor não cobre o total do pedido, não faz sentido como
         # "troco para" — trata como se não tivesse sido informado, em vez
@@ -1205,6 +1618,19 @@ def order_printed(order_id):
 
 # ---------- API do administrador ----------
 
+def _safe_shifts(shifts):
+    """Turnos sem a senha (nem hash): só um marcador de que existe uma."""
+    return [
+        {
+            "id": shift["id"],
+            "name": shift.get("name", ""),
+            "password": "__unchanged__" if shift.get("password") else "",
+            "has_password": bool(shift.get("password")),
+        }
+        for shift in shifts
+    ]
+
+
 @app.route("/api/admin/data", methods=["GET"])
 @require_admin
 def get_admin_data():
@@ -1213,14 +1639,7 @@ def get_admin_data():
     sync_store_session_now(data["store"])
     # No devolver hashes ni contraseñas reales al navegador.
     # El admin solo ve un marcador; si no cambia el campo, se conserva la anterior.
-    safe_shifts = []
-    for shift in data.get("shifts", []):
-        safe_shifts.append({
-            "id": shift["id"],
-            "name": shift.get("name", ""),
-            "password": "__unchanged__" if shift.get("password") else "",
-            "has_password": bool(shift.get("password")),
-        })
+    safe_shifts = _safe_shifts(data.get("shifts", []))
     admin_view = {
         "store": data["store"],
         "today_post": data["today_post"],
@@ -1511,7 +1930,7 @@ def admin_sales():
 
     return jsonify({
         "ok": True,
-        "shifts": data["shifts"],
+        "shifts": _safe_shifts(data["shifts"]),
         "sales": recent,
         "stats": {
             "total_geral": total_geral,
