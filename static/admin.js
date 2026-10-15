@@ -2090,6 +2090,24 @@ document.getElementById("courier-password-save-btn").addEventListener("click", a
   }
 });
 
+/* Novidades do desenvolvedor: aparecem ao entrar, só as que o admin ainda não leu. */
+async function showDevNotices() {
+  try {
+    const res = await fetch("/api/admin/novedades", { cache: "no-cache" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok || !data.notices.length) return;
+    ReyNovidades.show(data.notices, (ids) => {
+      fetch("/api/admin/novedades/vistas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      }).catch((error) => console.error(error));
+    });
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 /* Barra de atalhos fixa no topo: pula direto para qualquer seção (abrindo
  * ela se estiver fechada), sem precisar rolar a página inteira. */
 function initSectionNav() {
@@ -2260,6 +2278,7 @@ initAccessPagesLinks();
 loadData();
 loadBackups();
 loadCourierStatus();
+showDevNotices();
 loadSales();
 loadPedidosHistorico();
 loadCourierShifts();
