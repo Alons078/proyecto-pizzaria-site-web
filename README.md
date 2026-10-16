@@ -1,83 +1,112 @@
-# Rey Pizzaria — sitio de pedidos
+# 🍕 Rey Pizzaria — Sistema de pedidos online
 
-Sitio web de la pizzería: menú público, carrito con envío del pedido por WhatsApp, seguimiento del pedido, panel de administración, cocina, empleados y página del repartidor. Flask + SQLite, pensado para correr barato en Render (0.5 CPU / 512 MB) y aguantar picos de clientes.
+Sistema web completo para uma pizzaria real: cardápio público, carrinho com envio do pedido por WhatsApp, acompanhamento do pedido, painel administrativo, tela da cozinha, registro de vendas dos funcionários e página do entregador com notificações push.
 
-## Páginas
+Desenvolvido do zero (back-end e front-end) com **Flask + SQLite**, pensado para rodar barato no Render (0,5 CPU / 512 MB) e aguentar os horários de pico.
 
-| Ruta | Para quién | Qué hace |
+## ✨ Principais funcionalidades
+
+- **Cardápio e promoções** com produtos, tamanhos, bordas e montagem do pedido.
+- **Carrinho** com taxa de entrega por bairro, pagamento via Pix e envio do pedido por WhatsApp.
+- **Acompanhamento do pedido** em tempo real, por link único (`/pedido/<token>`).
+- **Painel do administrador**: cardápio, preços, turnos, horários de funcionamento e vendas.
+- **Tela da cozinha** com os pedidos em andamento.
+- **Página do entregador** (instalável no celular) com avisos push de "pedido pronto", mesmo com o navegador fechado.
+- **Impressão automática** de tickets em impressora térmica, por meio de um programa externo.
+- **Assistente virtual** no site do cliente, baseado em regras (sem IA e sem custo adicional).
+
+## 🛠️ Tecnologias
+
+| Camada | Tecnologia |
+|---|---|
+| Back-end | Python, Flask, Gunicorn |
+| Banco de dados | SQLite |
+| Front-end | HTML (Jinja), CSS e JavaScript puro |
+| Notificações | Web Push (`pywebpush`) e Service Worker |
+| Hospedagem | Render (serviço web com disco persistente) |
+
+## 🧭 Páginas do sistema
+
+| Rota | Para quem | O que faz |
 |---|---|---|
-| `/` | Clientes | Menú, promociones y post del día |
-| `/produto/<id>`, `/promocao/<id>` | Clientes | Detalle y armado del producto o promoción |
-| `/carrinho` | Clientes | Carrito, tasa de entrega, pago (Pix) y envío por WhatsApp |
-| `/pedido/<token>`, `/meus-pedidos` | Clientes | Seguimiento del pedido |
-| `/admin` | Administrador | Menú, precios, tamaños, bordas, turnos, horarios, ventas |
-| `/funcionarios` | Empleados (clave de turno) | Registro de ventas |
-| `/cozinha` | Cocina | Pedidos en curso |
-| `/entregador` | Repartidor | Pedidos listos y en ruta, avisos push |
-| `/dev` | Desarrollador | Avisos para el administrador |
+| `/` | Clientes | Cardápio, promoções e post do dia |
+| `/produto/<id>`, `/promocao/<id>` | Clientes | Detalhes e montagem do produto ou da promoção |
+| `/carrinho` | Clientes | Carrinho, taxa de entrega, pagamento (Pix) e envio por WhatsApp |
+| `/pedido/<token>`, `/meus-pedidos` | Clientes | Acompanhamento do pedido |
+| `/admin` | Administrador | Cardápio, preços, tamanhos, bordas, turnos, horários e vendas |
+| `/funcionarios` | Funcionários (senha do turno) | Registro de vendas |
+| `/cozinha` | Cozinha | Pedidos em andamento |
+| `/entregador` | Entregador | Pedidos prontos e em rota, avisos push |
+| `/dev` | Desenvolvedor | Avisos de atualização para o administrador |
 
-## Estructura
+## 📁 Estrutura do projeto
 
 ```
-app.py            Rutas, seguridad, reglas de pedido y precios
-db.py             SQLite: esquema, lectura y escritura
-delivery_fee.py   Tasa de entrega fija por barrio
-print_format.py   Formato del ticket para la impresora térmica
-static/           JS, CSS, íconos y fotos incluidas en el repo (static/uploads)
+app.py            Rotas, segurança, regras de pedido e preços
+db.py             SQLite: esquema, leitura e escrita
+delivery_fee.py   Taxa de entrega fixa por bairro
+print_format.py   Formato do ticket para a impressora térmica
+static/           JS, CSS, ícones e fotos (static/uploads)
 templates/        Páginas HTML (Jinja)
-data.json         Datos iniciales; solo se usa si la base está vacía
+data.json         Dados iniciais; só é usado se o banco estiver vazio
+Procfile          Comando de inicialização (referência)
 ```
 
-## Ejecutar en local
+## 🚀 Como rodar localmente
 
 ```bash
 pip install -r requirements.txt
-ADMIN_PASSWORD=cambia-esto python app.py   # http://localhost:5000
+ADMIN_PASSWORD=troque-isto python app.py   # http://localhost:5000
 ```
 
-Sin `DATA_DIR`, la base (`pizzaria.db`) y las fotos subidas quedan dentro del proyecto. Ambas están en `.gitignore` o se pueden ignorar al hacer commit.
+Sem `DATA_DIR`, o banco (`pizzaria.db`) e as fotos enviadas ficam dentro do projeto. O banco já está no `.gitignore`, então não vai para o repositório.
 
-## Variables de entorno
+## ⚙️ Variáveis de ambiente
 
-| Variable | Obligatoria | Para qué sirve |
+| Variável | Obrigatória | Para que serve |
 |---|---|---|
-| `SECRET_KEY` | Sí | Firma las sesiones. Sin ella, cada reinicio cierra todos los logins. |
-| `ADMIN_PASSWORD` | Sí | Clave de `/admin`. Sin ella el panel queda bloqueado. |
-| `DEV_PASSWORD` | Sí | Clave de `/dev`. Sin ella esa área queda bloqueada. |
-| `DATA_DIR` | Sí en Render | Carpeta del disco persistente (`/var/data`). Ahí viven la base y las fotos subidas (`DATA_DIR/uploads`). |
-| `TRUSTED_PROXIES` | Recomendada | Cuántos proxies hay delante de la app. En Render (con Cloudflare) vale `2`. Sin ella, el límite de intentos usa el primer valor de `X-Forwarded-For`, que se puede falsificar. |
-| `IP_DEBUG` | No | `1` registra en el log las primeras 30 cadenas `X-Forwarded-For`, para calcular `TRUSTED_PROXIES`. Déjala en `0` o sin definir. |
-| `PRICE_ENFORCE` | No | `1` hace valer el precio recalculado por el servidor. Sin definir, solo registra diferencias (`PRICE_DIFF`, `PRICE_UNSURE`, `PRICE_CHECK`) y vale el precio del navegador. |
-| `SESSION_COOKIE_SECURE` | No | Fuerza `1`/`0`. Por defecto es `1` cuando corre en Render. |
-| `NEIGHBORHOOD_FEES` | No | Tasas por barrio en JSON, por ejemplo `{"piscinão de ramos": 3, "ramos": 10}` (es el valor por defecto). |
-| `VAPID_SUBJECT` | No | Contacto para los avisos push. Las claves VAPID se generan solas y se guardan en la base. |
-| `API_RATE_LIMIT_MAX`, `API_RATE_LIMIT_WINDOW_S` | No | Límite general de la API por IP (por defecto 180 peticiones por 60 s). |
-| `FLASK_DEBUG`, `PORT` | No | Solo para ejecutar en local. |
+| `SECRET_KEY` | Sim | Assina as sessões. Sem ela, cada reinício derruba todos os logins. |
+| `ADMIN_PASSWORD` | Sim | Senha do `/admin`. Sem ela, o painel fica bloqueado. |
+| `DEV_PASSWORD` | Sim | Senha do `/dev`. Sem ela, essa área fica bloqueada. |
+| `DATA_DIR` | Sim no Render | Pasta do disco persistente (`/var/data`), onde ficam o banco e as fotos enviadas (`DATA_DIR/uploads`). |
+| `TRUSTED_PROXIES` | Recomendada | Quantos proxies existem na frente do app. No Render (com Cloudflare), o valor é `2`. Sem ela, o limite de tentativas usa o primeiro valor de `X-Forwarded-For`, que pode ser falsificado. |
+| `IP_DEBUG` | Não | `1` registra no log as primeiras 30 cadeias `X-Forwarded-For`, para calcular `TRUSTED_PROXIES`. Deixe em `0` ou sem definir. |
+| `PRICE_ENFORCE` | Não | `1` faz valer o preço recalculado pelo servidor. Sem definir, apenas registra diferenças (`PRICE_DIFF`, `PRICE_UNSURE`, `PRICE_CHECK`) e vale o preço do navegador. |
+| `SESSION_COOKIE_SECURE` | Não | Força `1`/`0`. Por padrão é `1` quando roda no Render. |
+| `NEIGHBORHOOD_FEES` | Não | Taxas por bairro em JSON, por exemplo `{"piscinão de ramos": 3, "ramos": 10}` (é o valor padrão). |
+| `VAPID_SUBJECT` | Não | Contato para os avisos push (e-mail real ou URL https do site). As chaves VAPID são geradas automaticamente e guardadas no banco. |
+| `API_RATE_LIMIT_MAX`, `API_RATE_LIMIT_WINDOW_S` | Não | Limite geral da API por IP (padrão: 180 requisições a cada 60 s). |
+| `FLASK_DEBUG`, `PORT` | Não | Apenas para rodar localmente. |
 
-Render define `RENDER` y `RENDER_EXTERNAL_HOSTNAME` automáticamente.
+O Render define `RENDER` e `RENDER_EXTERNAL_HOSTNAME` automaticamente.
 
-## Despliegue en Render
+## ☁️ Deploy no Render
 
-- Servicio web de Python con disco persistente montado en `/var/data` y `DATA_DIR=/var/data`.
+- Serviço web de Python com disco persistente montado em `/var/data` e `DATA_DIR=/var/data`.
 - Build: `pip install -r requirements.txt`.
-- Start: `gunicorn app:app --workers 1 --threads 16 --timeout 30 --keep-alive 5`. Render usa este comando del dashboard, no el `Procfile`. Se usa **un solo worker** a propósito: el límite de intentos y la sesión de la tienda viven en memoria.
-- Despliegue automático con cada commit a `main`.
-- Al desplegar, `init_db()` crea las tablas y los índices que falten sin tocar los datos existentes.
+- Start: `gunicorn app:app --workers 1 --threads 16 --timeout 30 --keep-alive 5`. O Render usa este comando configurado no painel, não o `Procfile`. Usa-se **um único worker** de propósito: o limite de tentativas e a sessão da loja ficam em memória.
+- Deploy automático a cada commit na `main`.
+- No deploy, `init_db()` cria as tabelas e os índices que faltarem, sem tocar nos dados existentes.
 
-## Seguridad y operación
+## 🔒 Segurança e operação
 
-- **Precios**: el carrito manda `type`, `id` y `sel`; `price_line()` recalcula el precio desde la base y lo compara con el del navegador. Revisa los logs `PRICE_DIFF` y `PRICE_UNSURE` tras unos pedidos reales antes de activar `PRICE_ENFORCE=1`.
-- **Contraseñas de turno**: se guardan con hash. Las antiguas en texto plano se migran al arrancar. Para cambiar una, edita el turno en `/admin`.
-- **Encabezados**: `nosniff`, `X-Frame-Options`, `Referrer-Policy` y una CSP en modo *Report-Only* (los avisos aparecen como `CSP_REPORT` en el log; hay scripts en línea en las páginas de producto y promoción).
-- **Imágenes**: solo PNG, JPG, WEBP o GIF, verificadas por su contenido real. Máximo 8 MB.
-- **Caché de JS**: cuando cambies `static/entregador.js` (o los JS del admin), sube el número `?v=` en su `<script>` dentro de `templates/`, para que los celulares no usen la versión vieja.
-- **Impresora térmica**: un programa aparte consulta `GET /api/pedidos/pendentes` con el encabezado `X-Print-Token` (el token se genera en `/admin`; el programa de impresión corre en el computador de la pizzería y no está en este repo).
-- **Respaldos del menú**: el servidor guarda copias del cardápio y el admin puede restaurar los productos que falten.
+- **Preços**: o carrinho envia `type`, `id` e `sel`; `price_line()` recalcula o preço a partir do banco e compara com o do navegador. Confira os logs `PRICE_DIFF` e `PRICE_UNSURE` depois de alguns pedidos reais, antes de ativar `PRICE_ENFORCE=1`.
+- **Senhas de turno**: guardadas com hash. As antigas, em texto puro, são migradas na inicialização. Para trocar uma, edite o turno em `/admin`.
+- **Cabeçalhos HTTP**: `nosniff`, `X-Frame-Options`, `Referrer-Policy` e uma CSP em modo *Report-Only* (os avisos aparecem como `CSP_REPORT` no log; há scripts inline nas páginas de produto e promoção).
+- **Imagens**: apenas PNG, JPG, WEBP ou GIF, verificadas pelo conteúdo real. Máximo de 8 MB.
+- **Cache de JS**: ao alterar `static/entregador.js` (ou os JS do admin), aumente o número `?v=` no `<script>` correspondente em `templates/`, para que os celulares não usem a versão antiga.
+- **Impressora térmica**: um programa separado consulta `GET /api/pedidos/pendentes` com o cabeçalho `X-Print-Token` (o token é gerado em `/admin`; o programa de impressão roda no computador da pizzaria e não faz parte deste repositório).
+- **Backups do cardápio**: o servidor guarda cópias do cardápio e o admin pode restaurar os produtos que faltarem.
 
-## Pruebas manuales básicas
+## ✅ Testes manuais básicos
 
-1. Abrir `/`, un producto y una promoción.
-2. Hacer un pedido de prueba (con la tienda abierta): debe aparecer en `/cozinha` y en la impresora, y abrir WhatsApp.
-3. En `/admin`, guardar el menú sin cambios y subir una foto.
-4. En `/entregador`, entrar con la clave del repartidor y comprobar los avisos.
-5. Revisar los logs de Render: sin errores al arrancar ni avisos `AVISO:` de variables faltantes.
+1. Abrir `/`, um produto e uma promoção.
+2. Fazer um pedido de teste (com a loja aberta): ele deve aparecer em `/cozinha` e na impressora, e abrir o WhatsApp.
+3. Em `/admin`, salvar o cardápio sem alterações e enviar uma foto.
+4. Em `/entregador`, entrar com a senha do entregador e conferir os avisos.
+5. Conferir os logs do Render: sem erros na inicialização e sem avisos `AVISO:` de variáveis faltando.
+
+## 👤 Autor
+
+Desenvolvido por **Alonso** — desenvolvedor back-end e front-end freelancer.
+GitHub: [@Alons078](https://github.com/Alons078)
